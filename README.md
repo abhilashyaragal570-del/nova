@@ -40,3 +40,10 @@ Type `exit` to quit, `/clear` to forget the conversation, or `/history` to see r
 ## Notes
 
 `.env` and `history.json` are listed in `.gitignore`, so your key and conversations are never pushed to GitHub.
+
+## Tests
+
+Install the dev requirements and run the tests:
+
+        pip install -r requirements-dev.txt
+        python -m pytest
