@@ -4,3 +4,5 @@ __pycache__/
 *.db
 logs/
 history.json
+
+.pytest_cache/
