@@ -34,15 +34,19 @@ def save_history(chat):
     )
 
 
-def main():
-    history = load_history()
-    chat = client.chats.create(
+def new_chat(history):
+    return client.chats.create(
         model=MODEL,
         config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
         history=history,
     )
+
+
+def main():
+    history = load_history()
+    chat = new_chat(history)
     total_tokens = 0
-    print("Nova is ready. Type 'exit' to quit.")
+    print("Nova is ready. Type 'exit' to quit, '/clear' to forget everything.")
     if history:
         print(f"(Loaded {len(history)} earlier messages.)")
     print()
@@ -52,6 +56,11 @@ def main():
             print(f"Nova: Goodbye! (session total: {total_tokens} tokens)")
             break
         if not user_input:
+            continue
+        if user_input.lower() == "/clear":
+            chat = new_chat([])
+            HISTORY_FILE.unlink(missing_ok=True)
+            print("Nova: Memory cleared. Starting fresh.\n")
             continue
         print("Nova: ", end="", flush=True)
         usage = None
