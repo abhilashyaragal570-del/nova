@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from google.genai import types
 from app.llm import client, MODEL
 
@@ -5,15 +8,44 @@ SYSTEM_PROMPT = (
     "You are Nova, a friendly and precise AI assistant. "
     "Keep answers clear and concise."
 )
+HISTORY_FILE = Path("history.json")
+
+
+def load_history():
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return [
+        types.Content(role=m["role"], parts=[types.Part(text=m["text"])])
+        for m in data
+    ]
+
+
+def save_history(chat):
+    data = []
+    for content in chat.get_history():
+        text = "".join(p.text or "" for p in (content.parts or []))
+        data.append({"role": content.role, "text": text})
+    HISTORY_FILE.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def main():
+    history = load_history()
     chat = client.chats.create(
         model=MODEL,
         config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+        history=history,
     )
     total_tokens = 0
-    print("Nova is ready. Type 'exit' to quit.\n")
+    print("Nova is ready. Type 'exit' to quit.")
+    if history:
+        print(f"(Loaded {len(history)} earlier messages.)")
+    print()
     while True:
         user_input = input("You: ").strip()
         if user_input.lower() in ("exit", "quit"):
@@ -29,6 +61,7 @@ def main():
             if chunk.usage_metadata:
                 usage = chunk.usage_metadata
         print()
+        save_history(chat)
         if usage:
             total_tokens += usage.total_token_count or 0
             print(
