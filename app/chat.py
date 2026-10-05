@@ -16,37 +16,47 @@ def load_history():
         data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return []
-    return [
-        types.Content(role=m["role"], parts=[types.Part(text=m["text"])])
-        for m in data
-    ]
+    return [m for m in data if m.get("text")]
 
 
-def save_history(chat):
-    data = []
-    for content in chat.get_history():
-        text = "".join(p.text or "" for p in (content.parts or []))
-        data.append({"role": content.role, "text": text})
+def save_history(messages):
     HISTORY_FILE.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
 
-def new_chat(history):
+def to_contents(messages):
+    return [
+        types.Content(role=m["role"], parts=[types.Part(text=m["text"])])
+        for m in messages
+    ]
+
+
+def show_history(messages, count=6):
+    if not messages:
+        print("Nova: No history yet.\n")
+        return
+    for m in messages[-count:]:
+        who = "You" if m["role"] == "user" else "Nova"
+        print(f"{who}: {m['text'][:200]}")
+    print()
+
+
+def new_chat(messages):
     return client.chats.create(
         model=MODEL,
         config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
-        history=history,
+        history=to_contents(messages),
     )
 
 
 def main():
-    history = load_history()
-    chat = new_chat(history)
+    messages = load_history()
+    chat = new_chat(messages)
     total_tokens = 0
-    print("Nova is ready. Type 'exit' to quit, '/clear' to forget everything.")
-    if history:
-        print(f"(Loaded {len(history)} earlier messages.)")
+    print("Nova is ready. Type 'exit' to quit, '/clear' to forget, '/history' to review.")
+    if messages:
+        print(f"(Loaded {len(messages)} earlier messages.)")
     print()
     while True:
         try:
@@ -59,16 +69,22 @@ def main():
             break
         if not user_input:
             continue
+        if user_input.lower() == "/history":
+            show_history(messages)
+            continue
         if user_input.lower() == "/clear":
-            chat = new_chat([])
+            messages = []
+            chat = new_chat(messages)
             HISTORY_FILE.unlink(missing_ok=True)
             print("Nova: Memory cleared. Starting fresh.\n")
             continue
         print("Nova: ", end="", flush=True)
         usage = None
+        reply = ""
         try:
             for chunk in chat.send_message_stream(user_input):
                 if chunk.text:
+                    reply += chunk.text
                     print(chunk.text, end="", flush=True)
                 if chunk.usage_metadata:
                     usage = chunk.usage_metadata
@@ -76,7 +92,10 @@ def main():
             print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
             continue
         print()
-        save_history(chat)
+        if reply:
+            messages.append({"role": "user", "text": user_input})
+            messages.append({"role": "model", "text": reply})
+            save_history(messages)
         if usage:
             total_tokens += usage.total_token_count or 0
             print(
