@@ -20,8 +20,11 @@ def main():
             break
         if not user_input:
             continue
-        reply = chat.send_message(user_input)
-        print(f"Nova: {reply.text}\n")
+        print("Nova: ", end="", flush=True)
+        for chunk in chat.send_message_stream(user_input):
+            if chunk.text:
+                print(chunk.text, end="", flush=True)
+        print("\n")
 
 
 if __name__ == "__main__":
