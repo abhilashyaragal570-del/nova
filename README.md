@@ -8,6 +8,7 @@ Nova is a small command-line AI chat assistant built with Python and the Google 
 - Token usage shown after every reply, plus a session total
 - Conversation history saved to `history.json` and loaded on the next run
 - `/clear` command to wipe the saved memory
+- `/history` command to show your recent messages
 - API key and model name kept in a `.env` file
 
 ## Setup
@@ -34,7 +35,7 @@ Nova is a small command-line AI chat assistant built with Python and the Google 
 
     python -m app.chat
 
-Type `exit` to quit, or `/clear` to forget the conversation.
+Type `exit` to quit, `/clear` to forget the conversation, or `/history` to see recent messages.
 
 ## Notes
 
