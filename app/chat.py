@@ -3,11 +3,9 @@ from pathlib import Path
 
 from google.genai import types
 from app.llm import client, MODEL
+from config import settings
 
-SYSTEM_PROMPT = (
-    "You are Nova, a friendly and precise AI assistant. "
-    "Keep answers clear and concise."
-)
+SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
 HISTORY_FILE = Path("history.json")
 
 
@@ -82,3 +80,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
