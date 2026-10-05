@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from google.genai import types
+from google.genai import errors, types
 from app.llm import client, MODEL
 from config import settings
 
@@ -49,7 +49,11 @@ def main():
         print(f"(Loaded {len(history)} earlier messages.)")
     print()
     while True:
-        user_input = input("You: ").strip()
+        try:
+            user_input = input("You: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\nNova: Goodbye! (session total: {total_tokens} tokens)")
+            break
         if user_input.lower() in ("exit", "quit"):
             print(f"Nova: Goodbye! (session total: {total_tokens} tokens)")
             break
@@ -62,11 +66,15 @@ def main():
             continue
         print("Nova: ", end="", flush=True)
         usage = None
-        for chunk in chat.send_message_stream(user_input):
-            if chunk.text:
-                print(chunk.text, end="", flush=True)
-            if chunk.usage_metadata:
-                usage = chunk.usage_metadata
+        try:
+            for chunk in chat.send_message_stream(user_input):
+                if chunk.text:
+                    print(chunk.text, end="", flush=True)
+                if chunk.usage_metadata:
+                    usage = chunk.usage_metadata
+        except errors.APIError as e:
+            print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
+            continue
         print()
         save_history(chat)
         if usage:
@@ -80,4 +88,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
