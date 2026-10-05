@@ -21,7 +21,7 @@ Nova is a small command-line AI chat assistant built with Python and the Google 
 
 3. Install the dependencies:
 
-        pip install google-genai python-dotenv
+        pip install -r requirements.txt
 
 4. Create a `.env` file in the project root with these two lines:
 
