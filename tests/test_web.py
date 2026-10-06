@@ -1,3 +1,4 @@
+import base64
 import json
 
 import pytest
@@ -28,8 +29,15 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(chat_module, "HISTORY_FILE", history)
     # Never call Gemini
     monkeypatch.setattr(server, "new_chat", lambda messages, prompt: FakeSession())
+    # Keep a real NOVA_PASSWORD from your environment out of the tests
+    monkeypatch.delenv("NOVA_PASSWORD", raising=False)
     server.app.config["TESTING"] = True
     return server.app.test_client()
+
+
+def basic(pw):
+    token = base64.b64encode(f"nova:{pw}".encode()).decode()
+    return {"Authorization": "Basic " + token}
 
 
 def test_system_roundtrip(client):
@@ -90,3 +98,14 @@ def test_delete_conversation(client):
     cid = client.post("/conversations").get_json()["id"]
     assert client.delete("/conversations/" + cid).status_code == 200
     assert client.get("/conversations/" + cid).status_code == 404
+
+
+def test_open_when_no_password_set(client):
+    assert client.get("/conversations").status_code == 200
+
+
+def test_password_required_when_set(client, monkeypatch):
+    monkeypatch.setenv("NOVA_PASSWORD", "secret")
+    assert client.get("/conversations").status_code == 401
+    assert client.get("/conversations", headers=basic("wrong")).status_code == 401
+    assert client.get("/conversations", headers=basic("secret")).status_code == 200
