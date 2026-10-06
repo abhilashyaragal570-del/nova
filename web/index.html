@@ -9,20 +9,35 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    margin: 0; height: 100vh; display: flex;
     font-family: system-ui, Segoe UI, sans-serif;
     background: #15171c; color: #e8e8ea;
   }
-  header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 16px; border-bottom: 1px solid #2a2d35;
+  #sidebar {
+    width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid #2a2d35; background: #181a20;
   }
+  #newchat {
+    margin: 12px; padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid #3a3e48; background: #22252c; color: #e8e8ea; font-size: 14px;
+  }
+  #newchat:hover { background: #2c3039; }
+  #convs { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .conv {
+    display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+    border-radius: 8px; cursor: pointer; font-size: 14px; color: #b8b8c0;
+  }
+  .conv:hover { background: #22252c; }
+  .conv.active { background: #2a2e38; color: #fff; }
+  .conv .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv .x {
+    background: none; border: none; color: #7d808a; cursor: pointer;
+    font-size: 16px; line-height: 1; padding: 0 2px;
+  }
+  .conv .x:hover { color: #ff7b7b; }
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  header { padding: 12px 16px; border-bottom: 1px solid #2a2d35; }
   header h1 { margin: 0; font-size: 18px; }
-  #clear {
-    background: none; border: 1px solid #3a3e48; color: #b8b8c0;
-    padding: 6px 12px; border-radius: 6px; cursor: pointer;
-  }
-  #clear:hover { background: #22252c; }
   #personality {
     display: flex; gap: 8px; align-items: center;
     padding: 10px 16px; border-bottom: 1px solid #2a2d35;
@@ -82,28 +97,31 @@
     border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 15px;
   }
   #send {
-    padding: 10px 18px; border: none; border-radius: 8px;
+    min-width: 76px; padding: 10px 18px; border: none; border-radius: 8px;
     background: #3b5bdb; color: #fff; font-size: 15px; cursor: pointer;
   }
-  #send:disabled { opacity: 0.5; cursor: default; }
+  #send.stop { background: #c92a2a; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Nova</h1>
-  <button id="clear" type="button">Clear memory</button>
-</header>
-<div id="personality">
-  <label for="prompt">Personality:</label>
-  <input id="prompt" type="text" autocomplete="off">
-  <button id="set" type="button">Set</button>
-  <span id="status"></span>
+<aside id="sidebar">
+  <button id="newchat" type="button">+ New chat</button>
+  <div id="convs"></div>
+</aside>
+<div id="main">
+  <header><h1>Nova</h1></header>
+  <div id="personality">
+    <label for="prompt">Personality:</label>
+    <input id="prompt" type="text" autocomplete="off">
+    <button id="set" type="button">Set</button>
+    <span id="status"></span>
+  </div>
+  <div id="chat"></div>
+  <form id="form">
+    <input id="box" type="text" placeholder="Message Nova..." autocomplete="off" autofocus>
+    <button id="send" type="submit">Send</button>
+  </form>
 </div>
-<div id="chat"></div>
-<form id="form">
-  <input id="box" type="text" placeholder="Message Nova..." autocomplete="off" autofocus>
-  <button id="send" type="submit">Send</button>
-</form>
 
 <script>
   const chat = document.getElementById("chat");
@@ -113,6 +131,10 @@
   const promptBox = document.getElementById("prompt");
   const setBtn = document.getElementById("set");
   const status = document.getElementById("status");
+  const convs = document.getElementById("convs");
+
+  let currentId = "main";
+  let controller = null;
 
   function renderMarkdown(el, text) {
     if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
@@ -142,13 +164,74 @@
     return { body, meta };
   }
 
-  async function loadHistory() {
-    const res = await fetch("/history");
-    const messages = await res.json();
-    for (const m of messages) {
-      addMessage(m.role === "user" ? "user" : "nova", m.text);
+  function setStreaming(on) {
+    send.textContent = on ? "Stop" : "Send";
+    send.classList.toggle("stop", on);
+  }
+
+  async function refreshList() {
+    const res = await fetch("/conversations");
+    const items = await res.json();
+    convs.innerHTML = "";
+    for (const c of items) {
+      const row = document.createElement("div");
+      row.className = "conv" + (c.id === currentId ? " active" : "");
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = c.title;
+      const x = document.createElement("button");
+      x.className = "x";
+      x.type = "button";
+      x.textContent = "\u00d7";
+      x.title = c.id === "main" ? "Clear this chat" : "Delete this chat";
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeConv(c.id);
+      });
+      row.addEventListener("click", () => switchTo(c.id));
+      row.append(t, x);
+      convs.appendChild(row);
     }
   }
+
+  async function switchTo(id) {
+    if (controller) {
+      controller.abort();
+      controller = null;
+      setStreaming(false);
+    }
+    currentId = id;
+    chat.innerHTML = "";
+    const res = await fetch("/conversations/" + id);
+    if (!res.ok) {
+      if (id !== "main") return switchTo("main");
+      return;
+    }
+    const data = await res.json();
+    if (currentId !== id) return;
+    for (const m of data.messages) {
+      addMessage(m.role === "user" ? "user" : "nova", m.text);
+    }
+    refreshList();
+  }
+
+  async function removeConv(id) {
+    const msg = id === "main" ? "Clear the Main chat?" : "Delete this chat?";
+    if (!confirm(msg)) return;
+    await fetch("/conversations/" + id, { method: "DELETE" });
+    if (id === currentId) {
+      switchTo("main");
+    } else {
+      refreshList();
+    }
+  }
+
+  document.getElementById("newchat").addEventListener("click", async () => {
+    const res = await fetch("/conversations", { method: "POST" });
+    const c = await res.json();
+    await switchTo(c.id);
+    box.focus();
+  });
 
   async function loadSystem() {
     const res = await fetch("/system");
@@ -175,12 +258,23 @@
     flashStatus(res.ok ? "Saved" : "Error");
   });
 
+  send.addEventListener("click", (e) => {
+    if (controller) {
+      e.preventDefault();
+      controller.abort();
+    }
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (controller) return;
     const text = box.value.trim();
     if (!text) return;
     box.value = "";
-    send.disabled = true;
+    const myId = currentId;
+    const myController = new AbortController();
+    controller = myController;
+    setStreaming(true);
     addMessage("user", text);
     const nova = addMessage("nova", "");
     nova.body.textContent = "Nova is typing";
@@ -191,7 +285,8 @@
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, conversation: myId }),
+        signal: myController.signal,
       });
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -215,7 +310,7 @@
         try {
           const u = JSON.parse(full.slice(cut + 1));
           nova.meta.textContent =
-            "tokens: prompt " + u.prompt + " · reply " + u.reply + " · total " + u.total;
+            "tokens: prompt " + u.prompt + " \u00b7 reply " + u.reply + " \u00b7 total " + u.total;
         } catch (err) {}
       }
       if (!started) {
@@ -224,19 +319,25 @@
       }
     } catch (err) {
       nova.body.classList.remove("typing");
-      nova.body.textContent = "[Could not reach the server.]";
+      if (err.name === "AbortError") {
+        if (!started) {
+          nova.body.textContent = "[Stopped.]";
+        } else {
+          nova.meta.textContent = "stopped";
+        }
+      } else {
+        nova.body.textContent = "[Could not reach the server.]";
+      }
     }
-    send.disabled = false;
+    if (controller === myController) {
+      controller = null;
+      setStreaming(false);
+    }
     box.focus();
+    refreshList();
   });
 
-  document.getElementById("clear").addEventListener("click", async () => {
-    if (!confirm("Clear Nova's memory?")) return;
-    await fetch("/clear", { method: "POST" });
-    chat.innerHTML = "";
-  });
-
-  loadHistory();
+  switchTo("main");
   loadSystem();
 </script>
 </body>
