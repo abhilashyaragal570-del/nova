@@ -25,13 +25,7 @@ Nova is a small command-line AI chat assistant built with Python and the Google 
 
         pip install -r requirements.txt
 
-4. Create a `.env` file in the project root with these two lines:
-
-        GEMINI_API_KEY=your_key_here
-        GEMINI_MODEL=gemini-flash-lite-latest
-
-   You can get a key at https://aistudio.google.com/apikey.
-
+4. Copy `.env.example` to `.env` and put your real key in it. The file looks like this:
 ## Run
 
     python -m app.chat
