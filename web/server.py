@@ -9,6 +9,8 @@ from app.chat import load_history, save_history, new_chat, SYSTEM_PROMPT
 WEB_DIR = Path(__file__).parent
 app = Flask(__name__)
 
+current_prompt = SYSTEM_PROMPT
+
 
 @app.get("/")
 def index():
@@ -18,6 +20,22 @@ def index():
 @app.get("/history")
 def history():
     return jsonify(load_history())
+
+
+@app.get("/system")
+def get_system():
+    return jsonify({"prompt": current_prompt})
+
+
+@app.post("/system")
+def set_system():
+    global current_prompt
+    data = request.get_json(silent=True) or {}
+    new_prompt = (data.get("prompt") or "").strip()
+    if not new_prompt:
+        return jsonify({"error": "Empty personality"}), 400
+    current_prompt = new_prompt
+    return jsonify({"prompt": current_prompt})
 
 
 @app.post("/clear")
@@ -34,7 +52,7 @@ def chat():
         return jsonify({"error": "Empty message"}), 400
 
     messages = load_history()
-    chat_session = new_chat(messages, SYSTEM_PROMPT)
+    chat_session = new_chat(messages, current_prompt)
 
     def generate():
         reply = ""

@@ -21,6 +21,21 @@
     padding: 6px 12px; border-radius: 6px; cursor: pointer;
   }
   #clear:hover { background: #22252c; }
+  #personality {
+    display: flex; gap: 8px; align-items: center;
+    padding: 10px 16px; border-bottom: 1px solid #2a2d35;
+    font-size: 14px; color: #b8b8c0;
+  }
+  #prompt {
+    flex: 1; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px;
+  }
+  #set {
+    padding: 8px 14px; border: 1px solid #3a3e48; border-radius: 6px;
+    background: #22252c; color: #e8e8ea; cursor: pointer;
+  }
+  #set:hover { background: #2c3039; }
+  #status { min-width: 60px; font-size: 13px; color: #7bd88f; }
   #chat {
     flex: 1; overflow-y: auto; padding: 16px;
     display: flex; flex-direction: column; gap: 10px;
@@ -51,6 +66,12 @@
   <h1>Nova</h1>
   <button id="clear" type="button">Clear memory</button>
 </header>
+<div id="personality">
+  <label for="prompt">Personality:</label>
+  <input id="prompt" type="text" autocomplete="off">
+  <button id="set" type="button">Set</button>
+  <span id="status"></span>
+</div>
 <div id="chat"></div>
 <form id="form">
   <input id="box" type="text" placeholder="Message Nova..." autocomplete="off" autofocus>
@@ -62,6 +83,9 @@
   const form = document.getElementById("form");
   const box = document.getElementById("box");
   const send = document.getElementById("send");
+  const promptBox = document.getElementById("prompt");
+  const setBtn = document.getElementById("set");
+  const status = document.getElementById("status");
 
   function addMessage(who, text) {
     const div = document.createElement("div");
@@ -79,6 +103,31 @@
       addMessage(m.role === "user" ? "user" : "nova", m.text);
     }
   }
+
+  async function loadSystem() {
+    const res = await fetch("/system");
+    const data = await res.json();
+    promptBox.value = data.prompt;
+  }
+
+  function flashStatus(text) {
+    status.textContent = text;
+    setTimeout(() => { status.textContent = ""; }, 2000);
+  }
+
+  setBtn.addEventListener("click", async () => {
+    const text = promptBox.value.trim();
+    if (!text) {
+      flashStatus("Empty!");
+      return;
+    }
+    const res = await fetch("/system", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: text }),
+    });
+    flashStatus(res.ok ? "Saved" : "Error");
+  });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -116,6 +165,7 @@
   });
 
   loadHistory();
+  loadSystem();
 </script>
 </body>
 </html>
