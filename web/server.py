@@ -7,9 +7,25 @@ from google.genai import errors
 from app.chat import load_history, save_history, new_chat, SYSTEM_PROMPT
 
 WEB_DIR = Path(__file__).parent
+PROMPT_FILE = Path("personality.json")
 app = Flask(__name__)
 
-current_prompt = SYSTEM_PROMPT
+
+def load_prompt():
+    try:
+        data = json.loads(PROMPT_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return SYSTEM_PROMPT
+    return data.get("prompt") or SYSTEM_PROMPT
+
+
+def save_prompt(prompt):
+    PROMPT_FILE.write_text(
+        json.dumps({"prompt": prompt}, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+current_prompt = load_prompt()
 
 
 @app.get("/")
@@ -35,6 +51,7 @@ def set_system():
     if not new_prompt:
         return jsonify({"error": "Empty personality"}), 400
     current_prompt = new_prompt
+    save_prompt(current_prompt)
     return jsonify({"prompt": current_prompt})
 
 
@@ -56,11 +73,14 @@ def chat():
 
     def generate():
         reply = ""
+        usage = None
         try:
             for chunk in chat_session.send_message_stream(user_input):
                 if chunk.text:
                     reply += chunk.text
                     yield chunk.text
+                if chunk.usage_metadata:
+                    usage = chunk.usage_metadata
         except errors.APIError as e:
             yield f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]"
             return
@@ -68,6 +88,13 @@ def chat():
             messages.append({"role": "user", "text": user_input})
             messages.append({"role": "model", "text": reply})
             save_history(messages)
+        if usage:
+            info = {
+                "prompt": usage.prompt_token_count,
+                "reply": usage.candidates_token_count,
+                "total": usage.total_token_count,
+            }
+            yield "\x00" + json.dumps(info)
 
     return Response(generate(), mimetype="text/plain")
 

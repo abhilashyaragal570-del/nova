@@ -6,3 +6,5 @@ logs/
 history.json
 
 .pytest_cache/
+personality.json
+

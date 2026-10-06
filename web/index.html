@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nova</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -42,10 +44,35 @@
   }
   .msg {
     max-width: 75%; padding: 10px 14px; border-radius: 12px;
-    white-space: pre-wrap; line-height: 1.45;
+    line-height: 1.45; overflow-wrap: anywhere;
   }
-  .user { align-self: flex-end; background: #3b5bdb; color: #fff; }
+  .user { align-self: flex-end; background: #3b5bdb; color: #fff; white-space: pre-wrap; }
   .nova { align-self: flex-start; background: #23262e; }
+  .nova .body > :first-child { margin-top: 0; }
+  .nova .body > :last-child { margin-bottom: 0; }
+  .nova p, .nova ul, .nova ol, .nova pre { margin: 0 0 10px; }
+  .nova ul, .nova ol { padding-left: 22px; }
+  .nova code {
+    background: #15171c; padding: 2px 5px; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 0.92em;
+  }
+  .nova pre {
+    background: #15171c; padding: 10px 12px; border-radius: 8px; overflow-x: auto;
+  }
+  .nova pre code { padding: 0; background: none; }
+  .meta { margin-top: 6px; font-size: 12px; color: #7d808a; }
+  .meta:empty { display: none; }
+  .typing { color: #8a8d96; font-style: italic; }
+  .typing::after {
+    content: "";
+    animation: dots 1.2s steps(1, end) infinite;
+  }
+  @keyframes dots {
+    0%   { content: ""; }
+    25%  { content: "."; }
+    50%  { content: ".."; }
+    75%  { content: "..."; }
+  }
   form {
     display: flex; gap: 8px; padding: 12px 16px;
     border-top: 1px solid #2a2d35;
@@ -87,13 +114,32 @@
   const setBtn = document.getElementById("set");
   const status = document.getElementById("status");
 
+  function renderMarkdown(el, text) {
+    if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+      el.style.whiteSpace = "pre-wrap";
+      el.textContent = text;
+      return;
+    }
+    el.innerHTML = DOMPurify.sanitize(marked.parse(text, { breaks: true }));
+  }
+
   function addMessage(who, text) {
     const div = document.createElement("div");
     div.className = "msg " + who;
-    div.textContent = text;
+    const body = document.createElement("div");
+    body.className = "body";
+    if (who === "nova") {
+      renderMarkdown(body, text);
+    } else {
+      body.textContent = text;
+    }
+    div.appendChild(body);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    div.appendChild(meta);
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
-    return div;
+    return { body, meta };
   }
 
   async function loadHistory() {
@@ -136,7 +182,11 @@
     box.value = "";
     send.disabled = true;
     addMessage("user", text);
-    const novaDiv = addMessage("nova", "");
+    const nova = addMessage("nova", "");
+    nova.body.textContent = "Nova is typing";
+    nova.body.classList.add("typing");
+    let started = false;
+    let full = "";
     try {
       const res = await fetch("/chat", {
         method: "POST",
@@ -148,11 +198,33 @@
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        novaDiv.textContent += decoder.decode(value, { stream: true });
-        chat.scrollTop = chat.scrollHeight;
+        full += decoder.decode(value, { stream: true });
+        const cut = full.indexOf("\u0000");
+        const replyText = cut === -1 ? full : full.slice(0, cut);
+        if (replyText) {
+          if (!started) {
+            nova.body.classList.remove("typing");
+            started = true;
+          }
+          renderMarkdown(nova.body, replyText);
+          chat.scrollTop = chat.scrollHeight;
+        }
+      }
+      const cut = full.indexOf("\u0000");
+      if (cut !== -1) {
+        try {
+          const u = JSON.parse(full.slice(cut + 1));
+          nova.meta.textContent =
+            "tokens: prompt " + u.prompt + " · reply " + u.reply + " · total " + u.total;
+        } catch (err) {}
+      }
+      if (!started) {
+        nova.body.classList.remove("typing");
+        nova.body.textContent = "[No reply received.]";
       }
     } catch (err) {
-      novaDiv.textContent = "[Could not reach the server.]";
+      nova.body.classList.remove("typing");
+      nova.body.textContent = "[Could not reach the server.]";
     }
     send.disabled = false;
     box.focus();
