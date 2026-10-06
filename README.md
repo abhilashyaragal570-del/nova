@@ -1,5 +1,5 @@
 # Nova
-
+![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 Nova is a small command-line AI chat assistant built with Python and the Google Gemini API.
 
 ## Features
