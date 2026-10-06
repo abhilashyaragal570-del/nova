@@ -42,19 +42,20 @@ def show_history(messages, count=6):
     print()
 
 
-def new_chat(messages):
+def new_chat(messages, system_prompt=SYSTEM_PROMPT):
     return client.chats.create(
         model=MODEL,
-        config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+        config=types.GenerateContentConfig(system_instruction=system_prompt),
         history=to_contents(messages),
     )
 
 
 def main():
     messages = load_history()
-    chat = new_chat(messages)
+    system_prompt = SYSTEM_PROMPT
+    chat = new_chat(messages, system_prompt)
     total_tokens = 0
-    print("Nova is ready. Commands: exit, /clear, /history, /model")
+    print("Nova is ready. Commands: exit, /clear, /history, /model, /system")
     if messages:
         print(f"(Loaded {len(messages)} earlier messages.)")
     print()
@@ -69,6 +70,14 @@ def main():
             break
         if not user_input:
             continue
+        if user_input.lower() == "/system":
+            print("Nova: Current personality: " + system_prompt + "\n")
+            continue
+        if user_input.lower().startswith("/system "):
+            system_prompt = user_input[len("/system "):].strip()
+            chat = new_chat(messages, system_prompt)
+            print("Nova: Personality updated for this session.\n")
+            continue
         if user_input.lower() == "/model":
             print("Nova: Using model " + MODEL + "\n")
             continue
@@ -77,7 +86,7 @@ def main():
             continue
         if user_input.lower() == "/clear":
             messages = []
-            chat = new_chat(messages)
+            chat = new_chat(messages, system_prompt)
             HISTORY_FILE.unlink(missing_ok=True)
             print("Nova: Memory cleared. Starting fresh.\n")
             continue
