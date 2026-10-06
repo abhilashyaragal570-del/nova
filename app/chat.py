@@ -54,7 +54,7 @@ def main():
     messages = load_history()
     chat = new_chat(messages)
     total_tokens = 0
-    print("Nova is ready. Type 'exit' to quit, '/clear' to forget, '/history' to review.")
+    print("Nova is ready. Commands: exit, /clear, /history, /model")
     if messages:
         print(f"(Loaded {len(messages)} earlier messages.)")
     print()
@@ -68,6 +68,9 @@ def main():
             print(f"Nova: Goodbye! (session total: {total_tokens} tokens)")
             break
         if not user_input:
+            continue
+        if user_input.lower() == "/model":
+            print("Nova: Using model " + MODEL + "\n")
             continue
         if user_input.lower() == "/history":
             show_history(messages)
