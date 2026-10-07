@@ -6,6 +6,7 @@ from app.llm import client, MODEL
 from app.tool_loop import run_turn
 from config import settings
 from tools.calculator import CalculatorTool
+from tools.file_tools import ListFilesTool, ReadFileTool
 from tools.gemini_adapter import to_gemini_tool
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
@@ -16,6 +17,8 @@ HISTORY_FILE = Path("history.json")
 registry = ToolRegistry()
 registry.register(CalculatorTool())
 registry.register(WebSearchTool())
+registry.register(ListFilesTool())
+registry.register(ReadFileTool())
 
 
 def load_history():
