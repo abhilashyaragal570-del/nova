@@ -41,3 +41,7 @@ Install the dev requirements and run the tests:
 
         pip install -r requirements-dev.txt
         python -m pytest
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
