@@ -3,10 +3,17 @@ from pathlib import Path
 
 from google.genai import errors, types
 from app.llm import client, MODEL
+from app.tool_loop import run_turn
 from config import settings
+from tools.calculator import CalculatorTool
+from tools.gemini_adapter import to_gemini_tool
+from tools.registry import ToolRegistry
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
 HISTORY_FILE = Path("history.json")
+
+registry = ToolRegistry()
+registry.register(CalculatorTool())
 
 
 def load_history():
@@ -43,9 +50,13 @@ def show_history(messages, count=6):
 
 
 def new_chat(messages, system_prompt=SYSTEM_PROMPT):
+    gemini_tool = to_gemini_tool(registry)
     return client.chats.create(
         model=MODEL,
-        config=types.GenerateContentConfig(system_instruction=system_prompt),
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=[gemini_tool] if gemini_tool else None,
+        ),
         history=to_contents(messages),
     )
 
@@ -91,29 +102,31 @@ def main():
             print("Nova: Memory cleared. Starting fresh.\n")
             continue
         print("Nova: ", end="", flush=True)
-        usage = None
-        reply = ""
         try:
-            for chunk in chat.send_message_stream(user_input):
-                if chunk.text:
-                    reply += chunk.text
-                    print(chunk.text, end="", flush=True)
-                if chunk.usage_metadata:
-                    usage = chunk.usage_metadata
+            result = run_turn(
+                chat,
+                user_input,
+                registry,
+                on_text=lambda t: print(t, end="", flush=True),
+            )
         except errors.APIError as e:
             print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
             continue
         print()
-        if reply:
+        if result.tool_calls:
+            print(f"[used {result.tool_calls} tool call(s)]")
+        if result.hit_round_limit:
+            print("[tool call limit reached]")
+        if result.reply:
             messages.append({"role": "user", "text": user_input})
-            messages.append({"role": "model", "text": reply})
+            messages.append({"role": "model", "text": result.reply})
             save_history(messages)
-        if usage:
-            total_tokens += usage.total_token_count or 0
+        if result.total_tokens:
+            total_tokens += result.total_tokens
             print(
-                f"[tokens: prompt {usage.prompt_token_count}, "
-                f"reply {usage.candidates_token_count}, "
-                f"total {usage.total_token_count}]\n"
+                f"[tokens: prompt {result.prompt_tokens}, "
+                f"reply {result.reply_tokens}, "
+                f"total {result.total_tokens}]\n"
             )
 
 
