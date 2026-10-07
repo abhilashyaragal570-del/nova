@@ -3,7 +3,8 @@
 Every tool call goes through registry.execute(), so the permission policy,
 confirmation prompts, and timeouts apply to workflows exactly as they do in
 chat. A task with no tool is a model step: the injected model function does
-it, seeing only the results of the tasks it depends on. The executor never
+it, seeing only the results of the tasks it depends on. A call the policy
+refused (for example, the user said no) is never retried. The executor never
 raises for a task problem; it records the failure.
 """
 import logging
@@ -12,7 +13,7 @@ import time
 from typing import Any, Callable
 
 from tools.registry import ToolRegistry
-from workflows.model_step import build_model_prompt  # NEW
+from workflows.model_step import build_model_prompt
 from workflows.models import Task, TaskStatus, Workflow, WorkflowStatus
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class WorkflowExecutor:
         deadline_seconds: float | None = None,
         sleep: Callable[[float], bool] | None = None,
         now: Callable[[], float] = time.monotonic,
-        model: Callable[[str], str] | None = None,  # NEW
+        model: Callable[[str], str] | None = None,
     ) -> None:
         self.registry = registry
         self.on_event = on_event
@@ -57,8 +58,9 @@ class WorkflowExecutor:
         self.cancel_event = cancel_event
         self.backoff_base = backoff_base
         self.deadline_seconds = deadline_seconds
-        self.model = model  # NEW
+        self.model = model
         self._now = now
+        self._refused = False  # NEW (Step 8): did the last task end in a policy refusal?
         # A sleeper returns True if it was interrupted by cancellation.
         self._sleep = sleep or self._interruptible_sleep
 
@@ -89,7 +91,7 @@ class WorkflowExecutor:
             logger.exception("should_cancel failed; stopping to be safe")
             return True
 
-    def _run_model_task(  # NEW
+    def _run_model_task(
         self, task: Task, workflow: Workflow | None
     ) -> tuple[bool, Any, str | None]:
         """A step with no tool: the model does it, seeing only its dependencies' results."""
@@ -105,11 +107,12 @@ class WorkflowExecutor:
         return True, text.strip(), None
 
     def _run_task(
-        self, task: Task, workflow: Workflow | None = None  # NEW: workflow argument
+        self, task: Task, workflow: Workflow | None = None
     ) -> tuple[bool, Any, str | None]:
         """Run one task. Returns (ok, output, error). Never raises."""
+        self._refused = False  # NEW (Step 8)
         if task.tool is None:
-            return self._run_model_task(task, workflow)  # NEW
+            return self._run_model_task(task, workflow)
         try:
             result = self.registry.execute(task.tool, dict(task.arguments))
         except Exception as e:  # registry should not raise, but never trust it
@@ -117,6 +120,7 @@ class WorkflowExecutor:
             return False, None, f"{type(e).__name__}: {e}"
         if result.ok:
             return True, result.output, None
+        self._refused = getattr(result, "refused", False) is True  # NEW (Step 8)
         return False, None, result.error or "tool failed"
 
     def _stop(self, workflow: Workflow, kind: str, detail: str) -> Workflow:
@@ -149,7 +153,7 @@ class WorkflowExecutor:
             task = ready[0]  # one at a time, in list order
             task.start()
             self._emit("start", task.id, f"attempt {task.attempts}/{task.max_attempts}")
-            ok, output, error = self._run_task(task, workflow)  # NEW
+            ok, output, error = self._run_task(task, workflow)
 
             if ok:
                 task.succeed(output)
@@ -157,7 +161,7 @@ class WorkflowExecutor:
                 continue
 
             task.fail(error or "tool failed")
-            if task.can_retry:
+            if task.can_retry and not self._refused:  # NEW (Step 8): a "no" is final
                 delay = backoff_delay(task.attempts, base=self.backoff_base)
                 self._emit("retry", task.id, f"{task.error} (waiting {delay:g}s)")
                 task.retry()

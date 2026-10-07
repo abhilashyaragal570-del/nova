@@ -10,6 +10,7 @@ class ToolResult:
     ok: bool
     output: Any = None
     error: str | None = None
+    refused: bool = False  # NEW: the policy said no; retrying will not change that
 
     @classmethod
     def success(cls, output: Any) -> "ToolResult":
@@ -18,6 +19,10 @@ class ToolResult:
     @classmethod
     def failure(cls, error: str) -> "ToolResult":
         return cls(ok=False, error=error)
+
+    @classmethod
+    def refusal(cls, reason: str) -> "ToolResult":  # NEW
+        return cls(ok=False, error=reason, refused=True)
 
 
 class Tool(ABC):

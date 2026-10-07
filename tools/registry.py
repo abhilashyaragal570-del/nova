@@ -79,7 +79,7 @@ class ToolRegistry:
             reason = self.policy.check(tool, arguments)
             if reason is not None:
                 logger.warning("Tool %s refused: %s", name, reason)
-                return ToolResult.failure(reason)
+                return ToolResult.refusal(reason)  # NEW (Step 8): a "no" is not retried
 
         tool_timeout = getattr(tool, "timeout_seconds", None)
         timeout = tool_timeout if tool_timeout is not None else self.default_timeout
