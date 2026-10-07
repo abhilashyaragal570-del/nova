@@ -126,7 +126,9 @@ class WriteFileTool(_FileTool):
     name = "write_file"
     description = (
         "Writes text to a file inside Nova's workspace folder. "
-        "Fails if the file already exists unless overwrite is true."
+        "Fails if the file already exists. Leave overwrite unset (false) unless "
+        "the user explicitly asked to replace an existing file. If the file "
+        "already exists, tell the user and ask before overwriting."
     )
     parameters = {
         "type": "object",
@@ -138,7 +140,7 @@ class WriteFileTool(_FileTool):
             "content": {"type": "string", "description": "The text to write."},
             "overwrite": {
                 "type": "boolean",
-                "description": "Replace the file if it exists. Default false.",
+                                "description": "Set true ONLY if the user explicitly asked to replace an existing file. Otherwise leave it out. Default false.",
             },
         },
         "required": ["path", "content"],
