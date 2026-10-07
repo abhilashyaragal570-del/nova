@@ -5,13 +5,15 @@ Nova is a password-protected AI assistant built with Python and the Google Gemin
 
 ## Features
 
+- Password-protected web interface built with Flask
 - Streaming responses, printed as they are generated
+- Tool-using agent that can call built-in tools such as a calculator
+- Safety layer around tool use
+- Workflow engine, run with `python -m workflows`
 - Token usage shown after every reply, plus a session total
 - Conversation history saved to `history.json` and loaded on the next run
-- `/clear` command to wipe the saved memory
-- `/history` command to show your recent messages
-- API key and model name kept in a `.env` file
-- `/model` command to show which model Nova is using
+- Terminal commands: `/clear`, `/history` and `/model`
+- API key, model name and password kept in a `.env` file
 
 ## Setup
 
