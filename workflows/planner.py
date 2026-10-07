@@ -4,7 +4,9 @@ The model call is injected as a plain function, so the planner never
 imports an LLM SDK and tests run with a fake. Model output is untrusted:
 only known fields are read, every field is checked, and anything invalid
 raises PlanError. A plan can never arrive pre-marked as done, because
-status, output and attempts are not read from the model at all.
+status, output and attempts are not read from the model at all. An optional
+critic reviews each valid plan; its objection is fed back like any other
+rejection.
 """
 import json
 import logging
@@ -19,6 +21,9 @@ MAX_GOAL_CHARS = 2000
 MAX_ATTEMPTS_LIMIT = 3
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# (goal, workflow) -> None if approved, otherwise the objection text.
+Critic = Callable[[str, Workflow], str | None]  # NEW (Step 9)
 
 
 class PlanError(WorkflowError):
@@ -120,10 +125,12 @@ class Planner:
         generate: Callable[[str], str],
         tools: Mapping[str, str],
         retries: int = 1,
+        critic: Critic | None = None,  # NEW (Step 9)
     ) -> None:
         self._generate = generate
         self._tools = dict(tools)
         self.retries = max(0, retries)
+        self._critic = critic  # NEW (Step 9)
 
     def plan(self, goal: str) -> Workflow:
         if not isinstance(goal, str) or not goal.strip():
@@ -138,8 +145,19 @@ class Planner:
             except Exception as e:
                 raise PlanError(f"model call failed: {type(e).__name__}") from None
             try:
-                return build_workflow(goal, parse_plan(text), set(self._tools))
+                workflow = build_workflow(goal, parse_plan(text), set(self._tools))
             except PlanError as e:
                 problem = str(e)
                 logger.info("plan rejected: %s", problem)
+                continue
+            if self._critic is not None:  # NEW (Step 9): review only plans that are valid
+                try:
+                    objection = self._critic(goal, workflow)
+                except Exception as e:
+                    raise PlanError(f"reviewer call failed: {type(e).__name__}") from None
+                if objection:
+                    problem = f"reviewer objected: {objection}"
+                    logger.info("plan rejected: %s", problem)
+                    continue
+            return workflow
         raise PlanError(f"could not produce a valid plan: {problem}")

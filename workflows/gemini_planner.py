@@ -7,6 +7,7 @@ Until approval checkpoints exist, only read-only tools are offered to the planne
 from typing import Any, Callable
 
 from tools.registry import ToolRegistry
+from workflows.critic import make_critic  # NEW (Step 9)
 from workflows.planner import Planner
 
 _DESCRIPTION_CHARS = 80
@@ -37,9 +38,13 @@ def make_planner(
     generate: Callable[[str], str] | None = None,
     read_only_only: bool = True,
     retries: int = 1,
+    critic: bool = False,  # NEW (Step 9): one extra model call per plan
 ) -> Planner:
     if generate is None:
         from app.llm import ask  # lazy: importing it creates the Gemini client
 
         generate = ask
-    return Planner(generate, tool_descriptions(registry, read_only_only), retries=retries)
+    review = make_critic(generate) if critic else None  # NEW (Step 9)
+    return Planner(
+        generate, tool_descriptions(registry, read_only_only), retries=retries, critic=review
+    )
