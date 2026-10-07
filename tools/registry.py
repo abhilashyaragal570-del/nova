@@ -3,13 +3,15 @@ import logging
 from typing import Any
 
 from tools.base import Tool, ToolResult
+from tools.policy import ToolPolicy
 
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    def __init__(self) -> None:
+    def __init__(self, policy: ToolPolicy | None = None) -> None:
         self._tools: dict[str, Tool] = {}
+        self.policy = policy
 
     def register(self, tool: Tool) -> None:
         if not tool.name:
@@ -33,6 +35,12 @@ class ToolRegistry:
         missing = [k for k in tool.parameters.get("required", []) if k not in arguments]
         if missing:
             return ToolResult.failure(f"Missing required arguments: {', '.join(missing)}")
+
+        if self.policy is not None:
+            reason = self.policy.check(tool, arguments)
+            if reason is not None:
+                logger.warning("Tool %s refused: %s", name, reason)
+                return ToolResult.failure(reason)
 
         try:
             logger.info("Running tool %s", name)
