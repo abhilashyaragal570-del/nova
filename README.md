@@ -1,6 +1,7 @@
 # Nova
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
-Nova is a small command-line AI chat assistant built with Python and the Google Gemini API.
+
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, and a workflow engine.
 
 ## Features
 
@@ -26,11 +27,18 @@ Nova is a small command-line AI chat assistant built with Python and the Google 
         pip install -r requirements.txt
 
 4. Copy `.env.example` to `.env` and put your real key in it. The file looks like this:
+
+        GEMINI_API_KEY=your-key-here
+        GEMINI_MODEL=gemini-flash-lite-latest
+
+   Get a key from Google AI Studio. Never commit your `.env` file.
+
 ## Run
 
     python -m app.chat
 
 Type `exit` to quit, `/clear` to forget the conversation, `/history` to see recent messages, or `/model` to see the model in use.
+
 ## Notes
 
 `.env` and `history.json` are listed in `.gitignore`, so your key and conversations are never pushed to GitHub.
