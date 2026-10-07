@@ -15,11 +15,16 @@ PROMPT_FILE = Path("personality.json")
 CONV_DIR = Path("conversations")
 NEW_TITLE = "New chat"
 app = Flask(__name__)
+
+
 @app.before_request
 def require_password():
     password = os.environ.get("NOVA_PASSWORD")
     if not password:
-        return None
+        return Response(
+            "NOVA_PASSWORD is not set, so the server is refusing all requests.",
+            503,
+        )
     auth = request.authorization
     if auth and hmac.compare_digest(
         (auth.password or "").encode(), password.encode()
@@ -28,6 +33,7 @@ def require_password():
     return Response(
         "Password required", 401, {"WWW-Authenticate": 'Basic realm="Nova"'}
     )
+
 
 def load_prompt():
     try:

@@ -1,5 +1,4 @@
 import base64
-import json
 
 import pytest
 
@@ -19,8 +18,13 @@ class FakeSession:
         yield FakeChunk("there")
 
 
+def basic(pw):
+    token = base64.b64encode(f"nova:{pw}".encode()).decode()
+    return {"Authorization": "Basic " + token}
+
+
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def anon_client(tmp_path, monkeypatch):
     # Send every file Nova writes into a temp folder
     monkeypatch.setattr(server, "CONV_DIR", tmp_path / "conversations")
     monkeypatch.setattr(server, "PROMPT_FILE", tmp_path / "personality.json")
@@ -29,15 +33,17 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(chat_module, "HISTORY_FILE", history)
     # Never call Gemini
     monkeypatch.setattr(server, "new_chat", lambda messages, prompt: FakeSession())
-    # Keep a real NOVA_PASSWORD from your environment out of the tests
-    monkeypatch.delenv("NOVA_PASSWORD", raising=False)
+    # The server refuses requests without a password, so set one
+    monkeypatch.setenv("NOVA_PASSWORD", "secret")
     server.app.config["TESTING"] = True
     return server.app.test_client()
 
 
-def basic(pw):
-    token = base64.b64encode(f"nova:{pw}".encode()).decode()
-    return {"Authorization": "Basic " + token}
+@pytest.fixture
+def client(anon_client):
+    # Same client, but it sends the right password with every request
+    anon_client.environ_base["HTTP_AUTHORIZATION"] = basic("secret")["Authorization"]
+    return anon_client
 
 
 def test_system_roundtrip(client):
@@ -100,12 +106,13 @@ def test_delete_conversation(client):
     assert client.get("/conversations/" + cid).status_code == 404
 
 
-def test_open_when_no_password_set(client):
-    assert client.get("/conversations").status_code == 200
+def test_refuses_all_requests_when_no_password_set(anon_client, monkeypatch):
+    monkeypatch.delenv("NOVA_PASSWORD", raising=False)
+    assert anon_client.get("/conversations").status_code == 503
+    assert anon_client.get("/conversations", headers=basic("secret")).status_code == 503
 
 
-def test_password_required_when_set(client, monkeypatch):
-    monkeypatch.setenv("NOVA_PASSWORD", "secret")
-    assert client.get("/conversations").status_code == 401
-    assert client.get("/conversations", headers=basic("wrong")).status_code == 401
-    assert client.get("/conversations", headers=basic("secret")).status_code == 200
+def test_password_required_when_set(anon_client):
+    assert anon_client.get("/conversations").status_code == 401
+    assert anon_client.get("/conversations", headers=basic("wrong")).status_code == 401
+    assert anon_client.get("/conversations", headers=basic("secret")).status_code == 200
