@@ -2,7 +2,9 @@
 
 Every tool call goes through registry.execute(), so the permission policy,
 confirmation prompts, and timeouts apply to workflows exactly as they do in
-chat. The executor never raises for a task problem; it records the failure.
+chat. A task with no tool is a model step: the injected model function does
+it, seeing only the results of the tasks it depends on. The executor never
+raises for a task problem; it records the failure.
 """
 import logging
 import threading
@@ -10,6 +12,7 @@ import time
 from typing import Any, Callable
 
 from tools.registry import ToolRegistry
+from workflows.model_step import build_model_prompt  # NEW
 from workflows.models import Task, TaskStatus, Workflow, WorkflowStatus
 
 logger = logging.getLogger(__name__)
@@ -46,6 +49,7 @@ class WorkflowExecutor:
         deadline_seconds: float | None = None,
         sleep: Callable[[float], bool] | None = None,
         now: Callable[[], float] = time.monotonic,
+        model: Callable[[str], str] | None = None,  # NEW
     ) -> None:
         self.registry = registry
         self.on_event = on_event
@@ -53,6 +57,7 @@ class WorkflowExecutor:
         self.cancel_event = cancel_event
         self.backoff_base = backoff_base
         self.deadline_seconds = deadline_seconds
+        self.model = model  # NEW
         self._now = now
         # A sleeper returns True if it was interrupted by cancellation.
         self._sleep = sleep or self._interruptible_sleep
@@ -84,10 +89,27 @@ class WorkflowExecutor:
             logger.exception("should_cancel failed; stopping to be safe")
             return True
 
-    def _run_task(self, task: Task) -> tuple[bool, Any, str | None]:
+    def _run_model_task(  # NEW
+        self, task: Task, workflow: Workflow | None
+    ) -> tuple[bool, Any, str | None]:
+        """A step with no tool: the model does it, seeing only its dependencies' results."""
+        if self.model is None:
+            return False, None, "task has no tool assigned"
+        try:
+            text = self.model(build_model_prompt(task, workflow))
+        except Exception as e:  # model calls fail in many ways; record, never raise
+            logger.exception("model step failed for task %s", task.id)
+            return False, None, f"model call failed: {type(e).__name__}"
+        if not isinstance(text, str) or not text.strip():
+            return False, None, "model returned no text"
+        return True, text.strip(), None
+
+    def _run_task(
+        self, task: Task, workflow: Workflow | None = None  # NEW: workflow argument
+    ) -> tuple[bool, Any, str | None]:
         """Run one task. Returns (ok, output, error). Never raises."""
         if task.tool is None:
-            return False, None, "task has no tool assigned"
+            return self._run_model_task(task, workflow)  # NEW
         try:
             result = self.registry.execute(task.tool, dict(task.arguments))
         except Exception as e:  # registry should not raise, but never trust it
@@ -127,7 +149,7 @@ class WorkflowExecutor:
             task = ready[0]  # one at a time, in list order
             task.start()
             self._emit("start", task.id, f"attempt {task.attempts}/{task.max_attempts}")
-            ok, output, error = self._run_task(task)
+            ok, output, error = self._run_task(task, workflow)  # NEW
 
             if ok:
                 task.succeed(output)

@@ -38,6 +38,7 @@ def build_prompt(goal: str, tools: Mapping[str, str], problem: str | None = None
         "Rules:\n"
         "- id: letters, digits, _ or -, unique, at most 40 characters.\n"
         "- tool: one of the tools below, or null for a step the model does itself.\n"
+        "- A null-tool step sees only the results of tasks in its depends_on, so list them.\n"
         "- depends_on: ids of tasks that must finish first. No cycles.\n"
         f"- max_attempts: 1 to {MAX_ATTEMPTS_LIMIT}.\n"
         f"- At most {MAX_TASKS} tasks. Keep the plan as short as the goal allows.\n\n"
