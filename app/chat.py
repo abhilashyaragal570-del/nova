@@ -74,4 +74,73 @@ def new_chat(messages, system_prompt=SYSTEM_PROMPT):
 
 
 def main():
-    messages
+    messages = load_history()
+    system_prompt = SYSTEM_PROMPT
+    chat = new_chat(messages, system_prompt)
+    total_tokens = 0
+    print("Nova is ready. Commands: exit, /clear, /history, /model, /system")
+    if messages:
+        print(f"(Loaded {len(messages)} earlier messages.)")
+    print()
+    while True:
+        try:
+            user_input = input("You: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\nNova: Goodbye! (session total: {total_tokens} tokens)")
+            break
+        if user_input.lower() in ("exit", "quit"):
+            print(f"Nova: Goodbye! (session total: {total_tokens} tokens)")
+            break
+        if not user_input:
+            continue
+        if user_input.lower() == "/system":
+            print("Nova: Current personality: " + system_prompt + "\n")
+            continue
+        if user_input.lower().startswith("/system "):
+            system_prompt = user_input[len("/system "):].strip()
+            chat = new_chat(messages, system_prompt)
+            print("Nova: Personality updated for this session.\n")
+            continue
+        if user_input.lower() == "/model":
+            print("Nova: Using model " + MODEL + "\n")
+            continue
+        if user_input.lower() == "/history":
+            show_history(messages)
+            continue
+        if user_input.lower() == "/clear":
+            messages = []
+            chat = new_chat(messages, system_prompt)
+            HISTORY_FILE.unlink(missing_ok=True)
+            print("Nova: Memory cleared. Starting fresh.\n")
+            continue
+        print("Nova: ", end="", flush=True)
+        try:
+            result = run_turn(
+                chat,
+                user_input,
+                registry,
+                on_text=lambda t: print(t, end="", flush=True),
+            )
+        except errors.APIError as e:
+            print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
+            continue
+        print()
+        if result.tool_calls:
+            print(f"[used {result.tool_calls} tool call(s)]")
+        if result.hit_round_limit:
+            print("[tool call limit reached]")
+        if result.reply:
+            messages.append({"role": "user", "text": user_input})
+            messages.append({"role": "model", "text": result.reply})
+            save_history(messages)
+        if result.total_tokens:
+            total_tokens += result.total_tokens
+            print(
+                f"[tokens: prompt {result.prompt_tokens}, "
+                f"reply {result.reply_tokens}, "
+                f"total {result.total_tokens}]\n"
+            )
+
+
+if __name__ == "__main__":
+    main()
