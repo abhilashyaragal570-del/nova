@@ -8,12 +8,14 @@ from config import settings
 from tools.calculator import CalculatorTool
 from tools.gemini_adapter import to_gemini_tool
 from tools.registry import ToolRegistry
+from tools.web_search import WebSearchTool
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
 HISTORY_FILE = Path("history.json")
 
 registry = ToolRegistry()
 registry.register(CalculatorTool())
+registry.register(WebSearchTool())
 
 
 def load_history():
