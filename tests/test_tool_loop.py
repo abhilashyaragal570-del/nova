@@ -26,17 +26,21 @@ def usage(total=15):
     )
 
 
-def text_chunk(text, with_usage=True):
+def _chunk(part, with_usage=True):
+    content = SimpleNamespace(parts=[part])
     return SimpleNamespace(
-        text=text,
-        function_calls=None,
+        candidates=[SimpleNamespace(content=content)],
         usage_metadata=usage() if with_usage else None,
     )
 
 
+def text_chunk(text, with_usage=True):
+    return _chunk(SimpleNamespace(text=text, function_call=None), with_usage)
+
+
 def call_chunk(name="calculator", args=None):
     call = types.FunctionCall(name=name, args=args or {"expression": "458 * 923"})
-    return SimpleNamespace(text=None, function_calls=[call], usage_metadata=usage())
+    return _chunk(SimpleNamespace(text=None, function_call=call))
 
 
 def make_registry():

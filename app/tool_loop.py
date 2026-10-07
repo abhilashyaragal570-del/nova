@@ -39,6 +39,23 @@ def _run_call(registry: ToolRegistry, call: Any) -> types.Part:
     return _response_part(call.name, {"error": result.error})
 
 
+def _chunk_parts(chunk: Any):
+    """Yield (text, function_call) pairs from a streamed chunk.
+
+    Reads parts directly instead of chunk.text, which makes the SDK print a
+    warning whenever a chunk contains a function call.
+    """
+    candidates = getattr(chunk, "candidates", None) or []
+    if not candidates:
+        return
+    content = getattr(candidates[0], "content", None)
+    for part in (getattr(content, "parts", None) or []):
+        text = getattr(part, "text", None)
+        call = getattr(part, "function_call", None)
+        if text or call:
+            yield text, call
+
+
 def run_turn(
     chat: Any,
     user_input: str,
@@ -55,12 +72,13 @@ def run_turn(
         calls: list = []
         usage = None
         for chunk in chat.send_message_stream(message):
-            text = getattr(chunk, "text", None)
-            if text:
-                result.reply += text
-                if on_text:
-                    on_text(text)
-            calls.extend(getattr(chunk, "function_calls", None) or [])
+            for text, call in _chunk_parts(chunk):
+                if text:
+                    result.reply += text
+                    if on_text:
+                        on_text(text)
+                if call:
+                    calls.append(call)
             if getattr(chunk, "usage_metadata", None):
                 usage = chunk.usage_metadata
 
