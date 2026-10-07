@@ -5,6 +5,8 @@ confirmation prompts, and timeouts apply to workflows exactly as they do in
 chat. The executor never raises for a task problem; it records the failure.
 """
 import logging
+import threading
+import time
 from typing import Any, Callable
 
 from tools.registry import ToolRegistry
@@ -12,8 +14,25 @@ from workflows.models import Task, TaskStatus, Workflow, WorkflowStatus
 
 logger = logging.getLogger(__name__)
 
-# (kind, task_id, detail). kind is one of: start, succeed, retry, fail, skip, cancel
+BACKOFF_BASE_SECONDS = 1.0
+BACKOFF_FACTOR = 2.0
+BACKOFF_CAP_SECONDS = 30.0
+
+# (kind, task_id, detail). kind is one of:
+# start, succeed, retry, fail, skip, cancel, timeout
 EventFn = Callable[[str, str, str], None]
+
+
+def backoff_delay(
+    attempt: int,
+    base: float = BACKOFF_BASE_SECONDS,
+    factor: float = BACKOFF_FACTOR,
+    cap: float = BACKOFF_CAP_SECONDS,
+) -> float:
+    """Seconds to wait after failed attempt number `attempt` (1-based)."""
+    if attempt < 1 or base <= 0:
+        return 0.0
+    return min(cap, base * (factor ** (attempt - 1)))
 
 
 class WorkflowExecutor:
@@ -22,10 +41,29 @@ class WorkflowExecutor:
         registry: ToolRegistry,
         on_event: EventFn | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        cancel_event: threading.Event | None = None,
+        backoff_base: float = BACKOFF_BASE_SECONDS,
+        deadline_seconds: float | None = None,
+        sleep: Callable[[float], bool] | None = None,
+        now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.registry = registry
         self.on_event = on_event
         self.should_cancel = should_cancel
+        self.cancel_event = cancel_event
+        self.backoff_base = backoff_base
+        self.deadline_seconds = deadline_seconds
+        self._now = now
+        # A sleeper returns True if it was interrupted by cancellation.
+        self._sleep = sleep or self._interruptible_sleep
+
+    def _interruptible_sleep(self, seconds: float) -> bool:
+        if seconds <= 0:
+            return False
+        if self.cancel_event is not None:
+            return self.cancel_event.wait(seconds)
+        time.sleep(seconds)
+        return False
 
     def _emit(self, kind: str, task_id: str, detail: str = "") -> None:
         logger.info("workflow event: %s %s %s", kind, task_id, detail)
@@ -36,6 +74,8 @@ class WorkflowExecutor:
                 logger.exception("workflow event handler failed")
 
     def _cancelled(self) -> bool:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return True
         if self.should_cancel is None:
             return False
         try:
@@ -57,15 +97,28 @@ class WorkflowExecutor:
             return True, result.output, None
         return False, None, result.error or "tool failed"
 
+    def _stop(self, workflow: Workflow, kind: str, detail: str) -> Workflow:
+        workflow.cancel()
+        self._emit(kind, "-", detail)
+        return workflow
+
     def run(self, workflow: Workflow) -> Workflow:
         if workflow.status in (WorkflowStatus.CANCELLED, WorkflowStatus.SUCCEEDED):
             return workflow
 
+        started = self._now()
+
+        def out_of_time() -> bool:
+            return (
+                self.deadline_seconds is not None
+                and self._now() - started >= self.deadline_seconds
+            )
+
         while True:
             if self._cancelled():
-                workflow.cancel()
-                self._emit("cancel", "-", "workflow cancelled")
-                return workflow
+                return self._stop(workflow, "cancel", "workflow cancelled")
+            if out_of_time():
+                return self._stop(workflow, "timeout", "workflow deadline reached")
 
             ready = workflow.ready_tasks()
             if not ready:
@@ -83,8 +136,11 @@ class WorkflowExecutor:
 
             task.fail(error or "tool failed")
             if task.can_retry:
-                self._emit("retry", task.id, task.error or "")
+                delay = backoff_delay(task.attempts, base=self.backoff_base)
+                self._emit("retry", task.id, f"{task.error} (waiting {delay:g}s)")
                 task.retry()
+                if self._sleep(delay):
+                    return self._stop(workflow, "cancel", "cancelled while waiting to retry")
                 continue
 
             self._emit("fail", task.id, task.error or "")

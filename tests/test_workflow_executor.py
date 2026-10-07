@@ -90,7 +90,7 @@ def test_failed_task_skips_dependents_and_fails_workflow():
 def test_retry_succeeds_when_attempts_remain():
     flaky = FlakyTool(fail_times=2)
     wf = Workflow(goal="g", tasks=[Task("a", "x", "flaky", max_attempts=3)])
-    WorkflowExecutor(registry_with(flaky)).run(wf)
+    WorkflowExecutor(registry_with(flaky), backoff_base=0).run(wf)
     assert flaky.calls == 3
     assert wf.get("a").status is TaskStatus.SUCCEEDED
     assert wf.get("a").attempts == 3
@@ -99,7 +99,7 @@ def test_retry_succeeds_when_attempts_remain():
 def test_retry_gives_up_after_max_attempts():
     flaky = FlakyTool(fail_times=10)
     wf = Workflow(goal="g", tasks=[Task("a", "x", "flaky", max_attempts=2)])
-    WorkflowExecutor(registry_with(flaky)).run(wf)
+    WorkflowExecutor(registry_with(flaky), backoff_base=0).run(wf)
     assert flaky.calls == 2
     assert wf.get("a").status is TaskStatus.FAILED
     assert wf.status is WorkflowStatus.FAILED
