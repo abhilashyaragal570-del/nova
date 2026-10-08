@@ -105,3 +105,21 @@ def test_messages_without_text_are_dropped(store):
     cid = store.create()
     store.save(cid, "t", [{"role": "user", "text": "hi"}, {"role": "model", "text": ""}])
     assert store.load(cid)["messages"] == [{"role": "user", "text": "hi"}]
+
+
+
+def test_main_history_that_is_not_a_list_loads_empty(store, tmp_path):
+    (tmp_path / "history.json").write_text('{"a": 1}', encoding="utf-8")
+    assert store.load(MAIN_ID)["messages"] == []
+
+
+def test_main_messages_without_text_are_dropped(store):
+    store.save(MAIN_ID, "t", [{"role": "user", "text": "hi"}, {"role": "model", "text": ""}])
+    assert store.load(MAIN_ID)["messages"] == [{"role": "user", "text": "hi"}]
+
+
+def test_list_skips_files_with_invalid_ids(store):
+    good = store.create()
+    (store.conv_dir / "notes.json").write_text("{}", encoding="utf-8")
+    ids = [c["id"] for c in store.list_conversations()]
+    assert ids == [MAIN_ID, good]    
