@@ -7,11 +7,12 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from google.genai import errors
 
 from app.chat import new_chat, SYSTEM_PROMPT
-from memory.conversation_store import MAIN_ID, NEW_TITLE, ConversationStore
+from memory.conversation_store import MAIN_ID, NEW_TITLE
+from memory.store_factory import create_store
 
 WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
-store = ConversationStore()
+store = create_store()
 app = Flask(__name__)
 
 

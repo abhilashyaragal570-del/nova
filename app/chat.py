@@ -3,7 +3,8 @@ from app.confirm import confirm_in_terminal
 from app.llm import client, MODEL
 from app.tool_loop import run_turn
 from config import settings
-from memory.conversation_store import MAIN_ID, ConversationStore
+from memory.conversation_store import MAIN_ID
+from memory.store_factory import create_store
 from tools.calculator import CalculatorTool
 from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.gemini_adapter import to_gemini_tool
@@ -13,7 +14,7 @@ from tools.web_search import WebSearchTool
 from tools.api_request import ApiRequestTool
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
-store = ConversationStore()
+store = create_store()
 
 # Every tool call passes through this registry. The policy asks you to
 # approve any tool that is not read-only (currently: write_file, api_request).
