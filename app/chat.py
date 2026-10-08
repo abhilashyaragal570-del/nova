@@ -1,11 +1,9 @@
-import json
-from pathlib import Path
-
 from google.genai import errors, types
 from app.confirm import confirm_in_terminal
 from app.llm import client, MODEL
 from app.tool_loop import run_turn
 from config import settings
+from memory.conversation_store import MAIN_ID, ConversationStore
 from tools.calculator import CalculatorTool
 from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.gemini_adapter import to_gemini_tool
@@ -15,7 +13,7 @@ from tools.web_search import WebSearchTool
 from tools.api_request import ApiRequestTool
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
-HISTORY_FILE = Path("history.json")
+store = ConversationStore()
 
 # Every tool call passes through this registry. The policy asks you to
 # approve any tool that is not read-only (currently: write_file, api_request).
@@ -26,22 +24,6 @@ registry.register(ListFilesTool())
 registry.register(ReadFileTool())
 registry.register(WriteFileTool())
 registry.register(ApiRequestTool())
-
-
-def load_history():
-    if not HISTORY_FILE.exists():
-        return []
-    try:
-        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    return [m for m in data if m.get("text")]
-
-
-def save_history(messages):
-    HISTORY_FILE.write_text(
-        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
 
 
 def to_contents(messages):
@@ -74,7 +56,7 @@ def new_chat(messages, system_prompt=SYSTEM_PROMPT):
 
 
 def main():
-    messages = load_history()
+    messages = store.load(MAIN_ID)["messages"]
     system_prompt = SYSTEM_PROMPT
     chat = new_chat(messages, system_prompt)
     total_tokens = 0
@@ -110,7 +92,7 @@ def main():
         if user_input.lower() == "/clear":
             messages = []
             chat = new_chat(messages, system_prompt)
-            HISTORY_FILE.unlink(missing_ok=True)
+            store.delete(MAIN_ID)
             print("Nova: Memory cleared. Starting fresh.\n")
             continue
         print("Nova: ", end="", flush=True)
@@ -132,7 +114,7 @@ def main():
         if result.reply:
             messages.append({"role": "user", "text": user_input})
             messages.append({"role": "model", "text": result.reply})
-            save_history(messages)
+            store.save(MAIN_ID, "Main chat", messages)
         if result.total_tokens:
             total_tokens += result.total_tokens
             print(

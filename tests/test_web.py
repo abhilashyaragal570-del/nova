@@ -3,7 +3,6 @@ import base64
 import pytest
 
 from web import server
-from app import chat as chat_module
 from memory.conversation_store import ConversationStore
 
 
@@ -32,7 +31,7 @@ def anon_client(tmp_path, monkeypatch):
         server, "store", ConversationStore(tmp_path / "conversations", history)
     )
     monkeypatch.setattr(server, "PROMPT_FILE", tmp_path / "personality.json")
-    monkeypatch.setattr(chat_module, "HISTORY_FILE", history)
+    
     # Never call Gemini
     monkeypatch.setattr(server, "new_chat", lambda messages, prompt: FakeSession())
     # The server refuses requests without a password, so set one
