@@ -46,7 +46,7 @@ Nova is a password-protected AI assistant built with Python and the Google Gemin
         TAVILY_API_KEY=
 
    - `GEMINI_API_KEY` is required. Get a key from Google AI Studio.
-   - `NOVA_PASSWORD` protects the web app. Leave it empty to run without a login.
+   - `NOVA_PASSWORD` is required for the web app. If it is empty, the server refuses every request.
    - `TAVILY_API_KEY` is only needed for the web search tool.
    - Never commit your `.env` file.
 
@@ -62,7 +62,7 @@ Type `exit` to quit, `/clear` to forget the conversation, `/history` to see rece
 
         flask --app web.server run
 
-Open http://127.0.0.1:5000 in your browser. If `NOVA_PASSWORD` is set, the browser asks for a login. Use any username and your password.
+Open http://127.0.0.1:5000 in your browser. The browser asks for a login. Use any username and your `NOVA_PASSWORD`.
 
 ## Tools
 
