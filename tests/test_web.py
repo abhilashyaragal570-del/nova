@@ -1,4 +1,5 @@
 import base64
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,9 @@ class FakeChunk:
     def __init__(self, text):
         self.text = text
         self.usage_metadata = None
+        part = SimpleNamespace(text=text, function_call=None)
+        content = SimpleNamespace(parts=[part])
+        self.candidates = [SimpleNamespace(content=content)]
 
 
 class FakeSession:
@@ -31,7 +35,6 @@ def anon_client(tmp_path, monkeypatch):
         server, "store", ConversationStore(tmp_path / "conversations", history)
     )
     monkeypatch.setattr(server, "PROMPT_FILE", tmp_path / "personality.json")
-    
     # Never call Gemini
     monkeypatch.setattr(server, "new_chat", lambda messages, prompt: FakeSession())
     # The server refuses requests without a password, so set one

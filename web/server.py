@@ -1,19 +1,41 @@
 import hmac
 import os
 import json
+import queue
+import threading
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from google.genai import errors
 
 from app.chat import new_chat, SYSTEM_PROMPT
+from app.tool_loop import run_turn
 from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
+from tools.api_request import ApiRequestTool
+from tools.calculator import CalculatorTool
+from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
+from tools.policy import ToolPolicy
+from tools.registry import ToolRegistry
+from tools.web_search import WebSearchTool
 
 WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
 store = create_store()
 app = Flask(__name__)
+
+# The browser can't answer "Allow? [y/N]", so this registry has no confirm
+# function: read-only tools run, tools that need approval are refused.
+web_registry = ToolRegistry(policy=ToolPolicy(confirm=None))
+for _tool in (
+    CalculatorTool(),
+    WebSearchTool(),
+    ListFilesTool(),
+    ReadFileTool(),
+    WriteFileTool(),
+    ApiRequestTool(),
+):
+    web_registry.register(_tool)
 
 
 @app.before_request
@@ -118,29 +140,54 @@ def chat():
     chat_session = new_chat(messages, current_prompt)
 
     def generate():
-        reply = ""
-        usage = None
-        try:
+        # run_turn blocks, so it runs in a thread and hands text over a queue.
+        chunks = queue.Queue()
+        outcome = {}
+
+        def worker():
             try:
-                for chunk in chat_session.send_message_stream(user_input):
-                    if chunk.text:
-                        reply += chunk.text
-                        yield chunk.text
-                    if chunk.usage_metadata:
-                        usage = chunk.usage_metadata
+                outcome["result"] = run_turn(
+                    chat_session, user_input, web_registry, on_text=chunks.put
+                )
             except errors.APIError as e:
-                yield f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]"
+                outcome["error"] = e
+            finally:
+                chunks.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        reply = ""
+        try:
+            while True:
+                text = chunks.get()
+                if text is None:
+                    break
+                reply += text
+                yield text
+            error = outcome.get("error")
+            if error is not None:
+                yield f"\n[Nova couldn't reply: error {error.code}. Try again in a moment.]"
                 return
         finally:
             if reply:
                 messages.append({"role": "user", "text": user_input})
                 messages.append({"role": "model", "text": reply})
                 store.save(cid, title, messages)
-        if usage:
+
+        result = outcome.get("result")
+        if result is None:
+            return
+        if not reply:
+            print(
+                "EMPTY REPLY: tool_calls =", result.tool_calls,
+                "hit_round_limit =", result.hit_round_limit,
+                flush=True,
+            )
+        if result.total_tokens:
             info = {
-                "prompt": usage.prompt_token_count,
-                "reply": usage.candidates_token_count,
-                "total": usage.total_token_count,
+                "prompt": result.prompt_tokens,
+                "reply": result.reply_tokens,
+                "total": result.total_tokens,
             }
             yield "\x00" + json.dumps(info)
 
