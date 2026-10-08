@@ -4,6 +4,7 @@ import pytest
 
 from web import server
 from app import chat as chat_module
+from memory.conversation_store import ConversationStore
 
 
 class FakeChunk:
@@ -26,10 +27,11 @@ def basic(pw):
 @pytest.fixture
 def anon_client(tmp_path, monkeypatch):
     # Send every file Nova writes into a temp folder
-    monkeypatch.setattr(server, "CONV_DIR", tmp_path / "conversations")
-    monkeypatch.setattr(server, "PROMPT_FILE", tmp_path / "personality.json")
     history = tmp_path / "history.json"
-    monkeypatch.setattr(server, "HISTORY_FILE", history)
+    monkeypatch.setattr(
+        server, "store", ConversationStore(tmp_path / "conversations", history)
+    )
+    monkeypatch.setattr(server, "PROMPT_FILE", tmp_path / "personality.json")
     monkeypatch.setattr(chat_module, "HISTORY_FILE", history)
     # Never call Gemini
     monkeypatch.setattr(server, "new_chat", lambda messages, prompt: FakeSession())
