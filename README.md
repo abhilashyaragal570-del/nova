@@ -2,18 +2,19 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, a workflow engine with browser approval, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
 
 ## Features
 
 - Password-protected web interface built with Flask, with saved conversations and an editable system prompt
 - Streaming responses, printed as they are generated
 - Tool-using agent: Gemini decides when to call a built-in tool
-- Built-in tools: calculator, file tools, web search and an API request tool
+- Built-in tools: calculator, file tools, web search, an API request tool and document search
+- Document search: add your own `.txt` and `.md` files with `python -m rag add`, and Nova answers from them and names the source file
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
-- Storage behind one interface for chats and for workflow runs: local files by default, PostgreSQL when `DATABASE_URL` is set
+- Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
 - Token usage shown after every reply
 - Terminal commands: `/clear`, `/history`, `/model` and `/system`
 - API keys, model name and password kept in a `.env` file
@@ -46,11 +47,13 @@ Nova is a password-protected AI assistant built with Python and the Google Gemin
         NOVA_SYSTEM_PROMPT=You are Nova, a friendly and precise AI assistant. Keep answers clear and concise.
         TAVILY_API_KEY=
         DATABASE_URL=
+        NOVA_EMBED_MODEL=
 
    - `GEMINI_API_KEY` is required. Get a key from Google AI Studio.
    - `NOVA_PASSWORD` is required for the web app. If it is empty, the server refuses every request.
    - `TAVILY_API_KEY` is only needed for the web search tool.
-   - `DATABASE_URL` is optional. Leave it empty to save chats and workflow runs as local files. Set it to a PostgreSQL connection string to save them in a database. On your own computer, use a database's external URL; a host's internal URL only works from inside that host.
+   - `NOVA_EMBED_MODEL` is optional. Leave it empty to use `gemini-embedding-001`. See Documents below.
+   - `DATABASE_URL` is optional. Leave it empty to save chats, workflow runs and indexed documents as local files. Set it to a PostgreSQL connection string to save them in a database. On your own computer, use a database's external URL; a host's internal URL only works from inside that host.
    - Never commit your `.env` file.
 
 ## Run
@@ -79,8 +82,26 @@ Nova can call these tools when a request needs them:
 - File tools: list, read and write files in the `workspace/` folder
 - Web search (needs `TAVILY_API_KEY`)
 - API request tool
+- Document search: finds passages in the files you added with `python -m rag add` (see Documents below)
 
 Tools are checked before they run. Read-only tools run freely, tools that change things need your approval, every call has a timeout, and the web and API tools refuse unsafe URLs.
+
+## Documents
+
+Nova can answer questions from your own notes. Add `.txt` or `.md` files and Nova searches them by meaning, so your question doesn't need the same words as the file.
+
+    python -m rag add notes.md garden.md
+    python -m rag list
+    python -m rag search "how often should I water tomatoes"
+    python -m rag remove notes.md
+    python -m rag clear
+
+Then ask Nova a question in the terminal chat or the web app. When the answer is in your files, Nova uses the `search_documents` tool and names the source file.
+
+- Adding a file again replaces the old copy. Files up to 300 KB are accepted.
+- Embeddings use `gemini-embedding-001`. Set `NOVA_EMBED_MODEL` to change it. Vectors from different models can't be compared, so after changing the model run `python -m rag clear` and add your files again.
+- Storage follows `DATABASE_URL`: local files in `rag_data/` (ignored by Git) by default, or a table called `rag_chunks` in PostgreSQL.
+- Adding files and searching send text to the Gemini API. Don't add anything you wouldn't send to Google.
 
 ## Workflows
 
@@ -108,10 +129,10 @@ Click **Workflows**, type a goal and click **Plan**. Review the plan, then click
 
 ## Storage
 
-Conversations and workflow runs are saved through small interfaces, so the storage can change without touching the rest of the app:
+Conversations, workflow runs and indexed documents are saved through small interfaces, so the storage can change without touching the rest of the app:
 
-- **Files (default):** the main chat in `history.json`, other chats in `conversations/`, workflow runs and their event logs in `workflow_data/`.
-- **PostgreSQL:** set `DATABASE_URL`. Nova creates its tables on first use: `conversations`, `workflow_runs` and `workflow_events`.
+- **Files (default):** the main chat in `history.json`, other chats in `conversations/`, workflow runs and their event logs in `workflow_data/`, indexed documents in `rag_data/`.
+- **PostgreSQL:** set `DATABASE_URL`. Nova creates its tables on first use: `conversations`, `workflow_runs`, `workflow_events` and `rag_chunks`.
 
 ## Deploy to Render
 
@@ -126,13 +147,13 @@ Keep `--workers 1`. The workflow that is planning or running lives in the server
 Notes for the free plan:
 
 - The service sleeps after about 15 minutes without traffic, so the first request can take up to a minute.
-- The disk is wiped on every restart, so without `DATABASE_URL`, saved chats and workflow runs are lost.
+- The disk is wiped on every restart, so without `DATABASE_URL`, saved chats, workflow runs and indexed documents are lost.
 - A restart also stops a workflow that is running. Its progress is saved, so you can resume it from the panel.
 - Free Render databases expire after 30 days. To renew: create a new free database, replace `DATABASE_URL` in **Environment** with its new Internal Database URL, then delete the old database. Chats and workflow runs saved in the old one are not carried over.
 
 ## Notes
 
-`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/` and `workspace/` are listed in `.gitignore`, so your keys and conversations are never pushed to GitHub.
+`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations and documents are never pushed to GitHub.
 
 ## Tests
 
@@ -145,9 +166,9 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, and document search over your own files (RAG).
 
-Planned next: document search (RAG) and specialized agents.
+Planned next: specialized agents.
 
 ## License
 
