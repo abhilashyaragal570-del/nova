@@ -15,6 +15,7 @@ from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
 from tools.api_request import ApiRequestTool
 from tools.calculator import CalculatorTool
+from tools.document_search import DocumentSearchTool
 from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
@@ -42,6 +43,7 @@ for _tool in (
     ReadFileTool(),
     WriteFileTool(),
     ApiRequestTool(),
+    DocumentSearchTool(),
 ):
     web_registry.register(_tool)
 

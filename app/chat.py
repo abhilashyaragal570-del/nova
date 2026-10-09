@@ -12,6 +12,7 @@ from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
 from tools.api_request import ApiRequestTool
+from tools.document_search import DocumentSearchTool
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
 store = create_store()
@@ -25,6 +26,7 @@ registry.register(ListFilesTool())
 registry.register(ReadFileTool())
 registry.register(WriteFileTool())
 registry.register(ApiRequestTool())
+registry.register(DocumentSearchTool())
 
 
 def to_contents(messages):

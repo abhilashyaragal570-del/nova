@@ -14,3 +14,4 @@ workflow_data/
 nova_backup.sql
 history.json.bak
 conversations_bak/
+rag_data/
