@@ -1,10 +1,12 @@
 """Auto-routing chat: each question goes to the agent the router picks.
 
 Questions no rule matches go to a general "nova" chat that has every tool,
-unless they are short follow-ups to a specialized agent's last answer. The
-session factory, save callback and I/O functions are passed in, so tests can
-drive the loop with fakes and never touch the real API or the disk.
+unless they are short follow-ups to a specialized agent's last answer. Requests
+to change a file also go to "nova", the only chat that can write. The session
+factory, save callback and I/O functions are passed in, so tests can drive the
+loop with fakes and never touch the real API or the disk.
 """
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +18,15 @@ from app.tool_loop import run_turn
 
 DEFAULT_AGENT = "nova"
 FOLLOWUP_MAX_WORDS = 4
+
+_WRITE_VERB = re.compile(
+    r"\b(?:create|write|save|delete|remove|append|overwrite|edit|rename)\b",
+    re.I,
+)
+_FILE_MENTION = re.compile(
+    r"\bfiles?\b|\b[\w-]+\.(?:py|txt|md|json|csv|toml|yaml|yml|ini|log)\b",
+    re.I,
+)
 
 
 @dataclass
@@ -36,14 +47,22 @@ def nova_spec(source, system_prompt: str) -> AgentSpec:
     )
 
 
+def wants_write(text: str) -> bool:
+    """True if the message asks to change a file (needs the general chat)."""
+    return bool(_WRITE_VERB.search(text) and _FILE_MENTION.search(text))
+
+
 def choose_agent(text: str, pinned, last_agent) -> str:
     """Pick the agent for this message.
 
-    Order: pinned agent, a clear router match, a short follow-up to the last
+    Order: pinned agent, a request to change a file (general chat, the only
+    one that can write), a clear router match, a short follow-up to the last
     specialized agent, then the general chat.
     """
     if pinned:
         return pinned
+    if wants_write(text):
+        return DEFAULT_AGENT
     routed = route(text)
     if routed:
         return routed
