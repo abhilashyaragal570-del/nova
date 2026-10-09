@@ -18,15 +18,17 @@ from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
+from web.approvals import ApprovalBroker
 
 WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
 store = create_store()
 app = Flask(__name__)
 
-# The browser can't answer "Allow? [y/N]", so this registry has no confirm
-# function: read-only tools run, tools that need approval are refused.
-web_registry = ToolRegistry(policy=ToolPolicy(confirm=None))
+# Tools that need approval pause until the browser answers Approve or Deny
+# (see web/approvals.py). No answer within the timeout counts as a denial.
+approvals = ApprovalBroker()
+web_registry = ToolRegistry(policy=ToolPolicy(confirm=approvals.confirm))
 for _tool in (
     CalculatorTool(),
     WebSearchTool(),
@@ -192,6 +194,20 @@ def chat():
             yield "\x00" + json.dumps(info)
 
     return Response(generate(), mimetype="text/plain")
+
+
+@app.get("/approvals")
+def list_approvals():
+    return jsonify(approvals.list_pending())
+
+
+@app.post("/approvals/<approval_id>")
+def answer_approval(approval_id):
+    data = request.get_json(silent=True) or {}
+    approved = data.get("approved") is True
+    if not approvals.resolve(approval_id, approved):
+        return jsonify({"error": "Unknown or already answered"}), 404
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
