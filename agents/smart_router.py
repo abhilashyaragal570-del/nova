@@ -33,7 +33,12 @@ def classify_with_model(client, model, text):
         response = client.models.generate_content(
             model=model,
             contents=build_prompt(text),
-            config=types.GenerateContentConfig(temperature=0),
+                       config=types.GenerateContentConfig(
+                temperature=0,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
+            ),
         )
         reply = response.text
     except Exception:
