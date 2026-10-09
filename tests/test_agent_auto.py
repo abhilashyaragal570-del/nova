@@ -9,6 +9,8 @@ from memory.conversation_store import MAIN_ID, ConversationStore
 from tools.base import Tool, ToolResult
 from tools.registry import ToolRegistry
 
+STORY = "please tell me a short story"  # 6 words, matches no router rule
+
 
 def chunk(text, tokens=(1, 1)):
     part = SimpleNamespace(text=text, function_call=None)
@@ -69,17 +71,17 @@ def run(inputs, chats, save=None):
 
 def test_questions_go_to_the_routed_agent():
     chats = {"files": FakeChat([[chunk("f")]]), "nova": FakeChat([[chunk("n")]])}
-    _, _, created = run(["list files", "hello", "exit"], chats)
+    _, _, created = run(["list files", STORY, "exit"], chats)
     assert chats["files"].sent == ["list files"]
-    assert chats["nova"].sent == ["hello"]
+    assert chats["nova"].sent == [STORY]
     assert created == ["files", "nova"]
 
 
 def test_a_session_is_created_once():
     chats = {"nova": FakeChat([[chunk("a")], [chunk("b")]])}
-    _, _, created = run(["hello", "hi there", "exit"], chats)
+    _, _, created = run([STORY, "hi there", "exit"], chats)
     assert created == ["nova"]
-    assert chats["nova"].sent == ["hello", "hi there"]
+    assert chats["nova"].sent == [STORY, "hi there"]
 
 
 def test_reply_is_labelled_with_the_agent():
@@ -92,13 +94,13 @@ def test_each_turn_is_saved_to_its_own_session():
     saved = []
     chats = {"files": FakeChat([[chunk("f")]]), "nova": FakeChat([[chunk("n")]])}
     run(
-        ["list files", "hello", "exit"],
+        ["list files", STORY, "exit"],
         chats,
         save=lambda s: saved.append((s.spec.name, list(s.messages))),
     )
     assert saved == [
         ("files", [{"role": "user", "text": "list files"}, {"role": "model", "text": "f"}]),
-        ("nova", [{"role": "user", "text": "hello"}, {"role": "model", "text": "n"}]),
+        ("nova", [{"role": "user", "text": STORY}, {"role": "model", "text": "n"}]),
     ]
 
 
@@ -107,7 +109,7 @@ def test_api_error_is_not_saved_and_the_session_continues():
     boom = errors.APIError(500, {"error": {"message": "boom"}})
     chats = {"nova": FakeChat([boom, [chunk("recovered")]])}
     _, output, _ = run(
-        ["hello", "hi there", "exit"], chats, save=lambda s: saved.append(1)
+        [STORY, "hi there", "exit"], chats, save=lambda s: saved.append(1)
     )
     assert "error 500" in output
     assert "recovered" in output
@@ -116,15 +118,15 @@ def test_api_error_is_not_saved_and_the_session_continues():
 
 def test_use_pins_an_agent():
     chats = {"notes": FakeChat([[chunk("n")]])}
-    _, _, created = run(["/use notes", "hello", "exit"], chats)
-    assert chats["notes"].sent == ["hello"]
+    _, _, created = run(["/use notes", STORY, "exit"], chats)
+    assert chats["notes"].sent == [STORY]
     assert created == ["notes"]
 
 
 def test_auto_unpins():
     chats = {"nova": FakeChat([[chunk("n")]])}
-    _, _, created = run(["/use notes", "/auto", "hello", "exit"], chats)
-    assert chats["nova"].sent == ["hello"]
+    _, _, created = run(["/use notes", "/auto", STORY, "exit"], chats)
+    assert chats["nova"].sent == [STORY]
     assert created == ["nova"]
 
 
@@ -139,13 +141,13 @@ def test_a_save_failure_does_not_end_the_session():
         raise OSError("disk full")
 
     chats = {"nova": FakeChat([[chunk("a")], [chunk("b")]])}
-    _, output, _ = run(["hello", "hi there", "exit"], chats, save=broken)
+    _, output, _ = run([STORY, "hi there", "exit"], chats, save=broken)
     assert output.count("couldn't save") == 2
 
 
 def test_tokens_are_totalled():
     chats = {"nova": FakeChat([[chunk("a", (1, 1))], [chunk("b", (2, 3))]])}
-    total, output, _ = run(["hello", "hi there", "exit"], chats)
+    total, output, _ = run([STORY, "hi there", "exit"], chats)
     assert total == 7
     assert "session total: 7 tokens" in output
 

@@ -1,6 +1,7 @@
 """Auto-routing chat: each question goes to the agent the router picks.
 
-Questions no rule matches go to a general "nova" chat that has every tool. The
+Questions no rule matches go to a general "nova" chat that has every tool,
+unless they are short follow-ups to a specialized agent's last answer. The
 session factory, save callback and I/O functions are passed in, so tests can
 drive the loop with fakes and never touch the real API or the disk.
 """
@@ -14,6 +15,7 @@ from agents.router import route
 from app.tool_loop import run_turn
 
 DEFAULT_AGENT = "nova"
+FOLLOWUP_MAX_WORDS = 4
 
 
 @dataclass
@@ -34,6 +36,22 @@ def nova_spec(source, system_prompt: str) -> AgentSpec:
     )
 
 
+def choose_agent(text: str, pinned, last_agent) -> str:
+    """Pick the agent for this message.
+
+    Order: pinned agent, a clear router match, a short follow-up to the last
+    specialized agent, then the general chat.
+    """
+    if pinned:
+        return pinned
+    routed = route(text)
+    if routed:
+        return routed
+    if last_agent in AGENTS and len(text.split()) <= FOLLOWUP_MAX_WORDS:
+        return last_agent
+    return DEFAULT_AGENT
+
+
 def _echo(text: str) -> None:
     print(text, end="", flush=True)
 
@@ -48,6 +66,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
     names = ", ".join(sorted(valid))
     sessions = {}
     pinned = None
+    last_agent = None
     total_tokens = 0
     write("Auto mode: each question goes to the agent the router picks.\n")
     write(f"Agents: {names}\n")
@@ -77,7 +96,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
             write(f"Pinned to {wanted}. Type /auto to route again.\n\n")
             continue
 
-        name = pinned or route(user_input) or DEFAULT_AGENT
+        name = choose_agent(user_input, pinned, last_agent)
         if name not in sessions:
             try:
                 sessions[name] = make_session(name)
@@ -100,6 +119,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
         if result.hit_round_limit:
             write("[tool call limit reached]\n")
         if result.reply:
+            last_agent = name
             session.messages.append({"role": "user", "text": user_input})
             session.messages.append({"role": "model", "text": result.reply})
             if save is not None:
