@@ -2,9 +2,10 @@
 
 Questions no rule matches go to a general "nova" chat that has every tool,
 unless they are short follow-ups to a specialized agent's last answer. Requests
-to change a file also go to "nova", the only chat that can write. The session
-factory, save callback and I/O functions are passed in, so tests can drive the
-loop with fakes and never touch the real API or the disk.
+to change a file also go to "nova", the only chat that can write. If a
+classifier is given, it is asked last, only for messages every rule missed.
+The session factory, save callback and I/O functions are passed in, so tests
+can drive the loop with fakes and never touch the real API or the disk.
 """
 import re
 from dataclasses import dataclass
@@ -52,12 +53,12 @@ def wants_write(text: str) -> bool:
     return bool(_WRITE_VERB.search(text) and _FILE_MENTION.search(text))
 
 
-def choose_agent(text: str, pinned, last_agent) -> str:
+def choose_agent(text: str, pinned, last_agent, classify=None) -> str:
     """Pick the agent for this message.
 
     Order: pinned agent, a request to change a file (general chat, the only
     one that can write), a clear router match, a short follow-up to the last
-    specialized agent, then the general chat.
+    specialized agent, the classifier (if given), then the general chat.
     """
     if pinned:
         return pinned
@@ -68,6 +69,13 @@ def choose_agent(text: str, pinned, last_agent) -> str:
         return routed
     if last_agent in AGENTS and len(text.split()) <= FOLLOWUP_MAX_WORDS:
         return last_agent
+    if classify is not None:
+        try:
+            picked = classify(text)
+        except Exception:  # a classifier problem must never stop the chat
+            picked = None
+        if picked in AGENTS:
+            return picked
     return DEFAULT_AGENT
 
 
@@ -75,11 +83,12 @@ def _echo(text: str) -> None:
     print(text, end="", flush=True)
 
 
-def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
+def auto_loop(make_session, save=None, read=input, write=_echo, classify=None) -> int:
     """Run until the user exits. Returns the session's token total.
 
     `make_session(name)` returns a Session. `save(session)` is called after
-    each answered turn, if given.
+    each answered turn, if given. `classify(text)` is an optional last-resort
+    router that returns an agent name or None.
     """
     valid = set(AGENTS) | {DEFAULT_AGENT}
     names = ", ".join(sorted(valid))
@@ -89,6 +98,8 @@ def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
     total_tokens = 0
     write("Auto mode: each question goes to the agent the router picks.\n")
     write(f"Agents: {names}\n")
+    if classify is not None:
+        write("Smart routing is on: the model decides when no rule matches.\n")
     write("Commands: /use <agent> to pin one, /auto to route again, exit.\n\n")
     while True:
         try:
@@ -115,7 +126,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo) -> int:
             write(f"Pinned to {wanted}. Type /auto to route again.\n\n")
             continue
 
-        name = choose_agent(user_input, pinned, last_agent)
+        name = choose_agent(user_input, pinned, last_agent, classify)
         if name not in sessions:
             try:
                 sessions[name] = make_session(name)
