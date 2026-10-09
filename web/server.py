@@ -9,6 +9,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from google.genai import errors
 
 from app.chat import new_chat, SYSTEM_PROMPT
+from app.llm import ask as model
 from app.tool_loop import run_turn
 from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
@@ -19,6 +20,11 @@ from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
 from web.approvals import ApprovalBroker
+from web.workflow_runs import Busy, WorkflowManager
+from workflows.executor import WorkflowExecutor
+from workflows.gemini_planner import make_planner
+from workflows.store import StoreError
+from workflows.store_factory import create_workflow_store
 
 WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
@@ -38,6 +44,22 @@ for _tool in (
     ApiRequestTool(),
 ):
     web_registry.register(_tool)
+
+# Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
+WORKFLOW_DEADLINE_SECONDS = 600.0
+workflow_manager = WorkflowManager(
+    make_planner=lambda write_tools: make_planner(
+        web_registry, generate=model, read_only_only=not write_tools, critic=True
+    ),
+    make_executor=lambda on_event, cancel: WorkflowExecutor(
+        web_registry,
+        on_event=on_event,
+        cancel_event=cancel,
+        model=model,
+        deadline_seconds=WORKFLOW_DEADLINE_SECONDS,
+    ),
+    make_store=create_workflow_store,
+)
 
 
 @app.before_request
@@ -208,6 +230,60 @@ def answer_approval(approval_id):
     if not approvals.resolve(approval_id, approved):
         return jsonify({"error": "Unknown or already answered"}), 404
     return jsonify({"ok": True})
+
+
+@app.post("/workflows")
+def start_workflow():
+    data = request.get_json(silent=True) or {}
+    goal = data.get("goal")
+    if not isinstance(goal, str) or not goal.strip():
+        return jsonify({"error": "Empty goal"}), 400
+    try:
+        run_id = workflow_manager.start(goal, data.get("write_tools") is True)
+    except Busy as e:
+        return jsonify({"error": str(e)}), 409
+    return jsonify({"id": run_id}), 202
+
+
+@app.get("/workflows")
+def list_workflows():
+    try:
+        return jsonify(workflow_manager.list_saved())
+    except StoreError as e:
+        return jsonify({"error": str(e)}), 503
+
+
+@app.get("/workflows/current")
+def current_workflow():
+    return jsonify(workflow_manager.snapshot() or {"state": "idle"})
+
+
+@app.post("/workflows/<run_id>/approve")
+def answer_workflow_plan(run_id):
+    data = request.get_json(silent=True) or {}
+    if not workflow_manager.approve(run_id, data.get("approved") is True):
+        return jsonify({"error": "No plan is waiting under that id"}), 404
+    return jsonify({"ok": True})
+
+
+@app.post("/workflows/<run_id>/cancel")
+def cancel_workflow(run_id):
+    if not workflow_manager.cancel(run_id):
+        return jsonify({"error": "Nothing to cancel under that id"}), 404
+    return jsonify({"ok": True})
+
+
+@app.post("/workflows/<workflow_id>/resume")
+def resume_workflow_route(workflow_id):
+    try:
+        run_id = workflow_manager.resume(workflow_id)
+    except Busy as e:
+        return jsonify({"error": str(e)}), 409
+    except StoreError as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"id": run_id}), 202
 
 
 if __name__ == "__main__":
