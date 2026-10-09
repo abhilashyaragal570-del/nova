@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; height: 100vh; display: flex;
     font-family: system-ui, Segoe UI, sans-serif;
@@ -36,8 +37,16 @@
   }
   .conv .x:hover { color: #ff7b7b; }
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  header { padding: 12px 16px; border-bottom: 1px solid #2a2d35; }
+  header {
+    padding: 12px 16px; border-bottom: 1px solid #2a2d35;
+    display: flex; align-items: center; justify-content: space-between;
+  }
   header h1 { margin: 0; font-size: 18px; }
+  #wftoggle {
+    padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px;
+    background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer;
+  }
+  #wftoggle:hover { background: #2c3039; }
   #personality {
     display: flex; gap: 8px; align-items: center;
     padding: 10px 16px; border-bottom: 1px solid #2a2d35;
@@ -53,6 +62,43 @@
   }
   #set:hover { background: #2c3039; }
   #status { min-width: 60px; font-size: 13px; color: #7bd88f; }
+  #wfpanel {
+    display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35;
+    max-height: 45vh; overflow-y: auto; font-size: 14px;
+  }
+  #wfpanel.open { display: block; }
+  .wfrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  #wfgoal {
+    flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px;
+  }
+  .wfcheck { font-size: 13px; color: #b8b8c0; white-space: nowrap; }
+  .wfbtn {
+    padding: 7px 14px; border: none; border-radius: 6px;
+    color: #fff; font-size: 14px; cursor: pointer; background: #3b5bdb;
+  }
+  .wfbtn.yes { background: #2b8a3e; }
+  .wfbtn.no { background: #c92a2a; }
+  .wfbtn:disabled { opacity: 0.5; cursor: default; }
+  #wfmsg { color: #ffb347; margin-bottom: 6px; }
+  #wfmsg:empty, #wferr:empty, #wfstate:empty { display: none; }
+  #wferr { color: #ff7b7b; margin-bottom: 6px; }
+  #wfstate { margin-bottom: 6px; color: #b8b8c0; }
+  #wfpanel pre {
+    margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto;
+    background: #15171c; font-family: Consolas, monospace; font-size: 13px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .wftask { display: flex; gap: 10px; padding: 3px 0; }
+  .wftask .st { min-width: 84px; font-size: 13px; color: #8a8d96; }
+  .wftask .st.running { color: #ffb347; }
+  .wftask .st.succeeded { color: #7bd88f; }
+  .wftask .st.failed { color: #ff7b7b; }
+  .wftask .detail { color: #7d808a; font-size: 13px; overflow-wrap: anywhere; }
+  .wfhead { margin: 10px 0 4px; font-size: 13px; color: #7d808a; }
+  .wfsaved { display: flex; gap: 10px; align-items: center; padding: 3px 0; font-size: 13px; }
+  .wfsaved .s { min-width: 84px; color: #8a8d96; }
+  .wfsaved .g { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #chat {
     flex: 1; overflow-y: auto; padding: 16px;
     display: flex; flex-direction: column; gap: 10px;
@@ -127,12 +173,31 @@
   <div id="convs"></div>
 </aside>
 <div id="main">
-  <header><h1>Nova</h1></header>
+  <header>
+    <h1>Nova</h1>
+    <button id="wftoggle" type="button">Workflows</button>
+  </header>
   <div id="personality">
     <label for="prompt">Personality:</label>
     <input id="prompt" type="text" autocomplete="off">
     <button id="set" type="button">Set</button>
     <span id="status"></span>
+  </div>
+  <div id="wfpanel">
+    <div id="wfform" class="wfrow">
+      <input id="wfgoal" type="text" placeholder="Give Nova a goal, e.g. list the files in my workspace folder" autocomplete="off">
+      <label class="wfcheck"><input id="wfwrite" type="checkbox"> Allow tools that change things</label>
+      <button id="wfplanbtn" class="wfbtn" type="button">Plan</button>
+    </div>
+    <div id="wfmsg"></div>
+    <div id="wfstate"></div>
+    <div id="wferr"></div>
+    <pre id="wfplan" hidden></pre>
+    <div id="wfactions" class="wfrow"></div>
+    <div id="wftasks"></div>
+    <pre id="wfresult" hidden></pre>
+    <div class="wfhead">Saved workflows</div>
+    <div id="wfsaved"></div>
   </div>
   <div id="chat"></div>
   <div id="approvals"></div>
@@ -421,6 +486,223 @@
   }
 
   setInterval(pollApprovals, 1000);
+
+  // ---- Workflows: plan, approve the plan, watch it run ----
+  // Tool steps that change things still show the Approve / Deny cards above.
+  const wfToggle = document.getElementById("wftoggle");
+  const wfPanel = document.getElementById("wfpanel");
+  const wfForm = document.getElementById("wfform");
+  const wfGoal = document.getElementById("wfgoal");
+  const wfWrite = document.getElementById("wfwrite");
+  const wfPlanBtn = document.getElementById("wfplanbtn");
+  const wfMsg = document.getElementById("wfmsg");
+  const wfStateEl = document.getElementById("wfstate");
+  const wfErr = document.getElementById("wferr");
+  const wfPlan = document.getElementById("wfplan");
+  const wfActions = document.getElementById("wfactions");
+  const wfTasks = document.getElementById("wftasks");
+  const wfResult = document.getElementById("wfresult");
+  const wfSaved = document.getElementById("wfsaved");
+
+  const WF_ACTIVE = ["planning", "awaiting_approval", "running"];
+  const WF_LABELS = {
+    idle: "",
+    planning: "Planning...",
+    awaiting_approval: "Review the plan. Nothing runs or is saved until you approve it.",
+    running: "Running. A step that changes things will ask for approval above the message box.",
+    done: "Finished.",
+    cancelled: "Cancelled.",
+    declined: "Plan discarded. Nothing was run or saved.",
+    error: "Stopped.",
+  };
+  let wfOpen = false;
+  let wfLastState = "idle";
+  let wfLastSig = "";
+
+  async function wfPost(url, body) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (err) {}
+      return { ok: res.ok, data: data };
+    } catch (err) {
+      return { ok: false, data: { error: "Could not reach the server." } };
+    }
+  }
+
+  function wfButton(label, cls, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "wfbtn " + cls;
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  async function startWorkflow() {
+    const goal = wfGoal.value.trim();
+    if (!goal) {
+      wfMsg.textContent = "Type a goal first.";
+      return;
+    }
+    wfPlanBtn.disabled = true;
+    const r = await wfPost("/workflows", { goal: goal, write_tools: wfWrite.checked });
+    wfPlanBtn.disabled = false;
+    if (!r.ok) {
+      wfMsg.textContent = r.data.error || "Could not start.";
+      return;
+    }
+    wfMsg.textContent = "";
+    wfGoal.value = "";
+    wfLastSig = "";
+    pollWorkflow();
+  }
+
+  async function answerPlan(runId, approved) {
+    const r = await wfPost("/workflows/" + encodeURIComponent(runId) + "/approve", { approved: approved });
+    wfMsg.textContent = r.ok ? "" : (r.data.error || "That plan is no longer waiting.");
+    wfLastSig = "";
+    pollWorkflow();
+  }
+
+  async function cancelWorkflow(runId) {
+    const r = await wfPost("/workflows/" + encodeURIComponent(runId) + "/cancel");
+    wfMsg.textContent = r.ok ? "Stopping after the current step..." : (r.data.error || "Nothing to cancel.");
+    wfLastSig = "";
+    pollWorkflow();
+  }
+
+  async function resumeWorkflow(workflowId) {
+    const r = await wfPost("/workflows/" + encodeURIComponent(workflowId) + "/resume");
+    wfMsg.textContent = r.ok ? "" : (r.data.error || "Could not resume.");
+    wfLastSig = "";
+    pollWorkflow();
+  }
+
+  function renderWorkflow(snap) {
+    const sig = JSON.stringify(snap);
+    if (sig === wfLastSig) return;
+    wfLastSig = sig;
+    const state = snap.state;
+    const active = WF_ACTIVE.includes(state);
+
+    wfForm.hidden = active;
+    let label = WF_LABELS[state] || "";
+    if (label && snap.goal) label += "  Goal: " + snap.goal;
+    wfStateEl.textContent = label;
+    wfErr.textContent = snap.error || "";
+
+    wfPlan.hidden = state !== "awaiting_approval" || !snap.plan;
+    wfPlan.textContent = snap.plan || "";
+
+    wfActions.innerHTML = "";
+    if (state === "awaiting_approval") {
+      wfActions.append(
+        wfButton("Run plan", "yes", () => answerPlan(snap.id, true)),
+        wfButton("Discard", "no", () => answerPlan(snap.id, false))
+      );
+    } else if (state === "planning" || state === "running") {
+      wfActions.append(wfButton("Cancel", "no", () => cancelWorkflow(snap.id)));
+    }
+
+    wfTasks.innerHTML = "";
+    if (state !== "awaiting_approval") {
+      for (const t of snap.tasks || []) {
+        const row = document.createElement("div");
+        row.className = "wftask";
+        const st = document.createElement("span");
+        st.className = "st " + t.status;
+        st.textContent = t.status;
+        const text = document.createElement("div");
+        text.textContent = t.description + (t.tool ? " [" + t.tool + "]" : "");
+        if (t.detail) {
+          const d = document.createElement("div");
+          d.className = "detail";
+          d.textContent = t.detail;
+          text.appendChild(d);
+        }
+        row.append(st, text);
+        wfTasks.appendChild(row);
+      }
+    }
+
+    wfResult.hidden = !snap.result;
+    wfResult.textContent = snap.result || "";
+  }
+
+  async function loadSaved() {
+    wfSaved.innerHTML = "";
+    let items = [];
+    try {
+      const res = await fetch("/workflows");
+      if (!res.ok) {
+        wfSaved.textContent = "Could not load saved workflows.";
+        return;
+      }
+      items = await res.json();
+    } catch (err) {
+      wfSaved.textContent = "Could not load saved workflows.";
+      return;
+    }
+    if (!items.length) {
+      wfSaved.textContent = "None yet.";
+      return;
+    }
+    for (const w of items) {
+      const row = document.createElement("div");
+      row.className = "wfsaved";
+      const s = document.createElement("span");
+      s.className = "s";
+      s.textContent = w.status;
+      const g = document.createElement("span");
+      g.className = "g";
+      g.textContent = w.goal || w.id;
+      row.append(s, g);
+      if (w.status === "pending" || w.status === "running") {
+        row.appendChild(wfButton("Resume", "", () => resumeWorkflow(w.id)));
+      }
+      wfSaved.appendChild(row);
+    }
+  }
+
+  async function pollWorkflow() {
+    try {
+      const res = await fetch("/workflows/current");
+      if (!res.ok) return;
+      const snap = await res.json();
+      const active = WF_ACTIVE.includes(snap.state);
+      wfToggle.textContent = "Workflows" + (active ? " \u25cf" : "");
+      if (wfOpen) renderWorkflow(snap);
+      if (snap.state !== wfLastState) {
+        wfLastState = snap.state;
+        if (wfOpen && !active) loadSaved();
+      }
+    } catch (err) {}
+  }
+
+  wfToggle.addEventListener("click", () => {
+    wfOpen = !wfOpen;
+    wfPanel.classList.toggle("open", wfOpen);
+    if (wfOpen) {
+      wfLastSig = "";
+      pollWorkflow();
+      loadSaved();
+    }
+  });
+  wfPlanBtn.addEventListener("click", startWorkflow);
+  wfGoal.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      startWorkflow();
+    }
+  });
+
+  setInterval(pollWorkflow, 1000);
+  pollWorkflow();
 </script>
 </body>
 </html>
