@@ -67,6 +67,8 @@ class ListFilesTool(_FileTool):
     def run(self, path: Any = ".", **_: Any) -> ToolResult:
         try:
             folder = _safe_path(self.workspace, path or ".")
+            if not folder.exists() and folder == self.workspace.resolve():
+                return ToolResult.success([])  # nothing has been written yet
             if not folder.is_dir():
                 return ToolResult.failure("not a folder or does not exist")
             entries = []
@@ -140,7 +142,7 @@ class WriteFileTool(_FileTool):
             "content": {"type": "string", "description": "The text to write."},
             "overwrite": {
                 "type": "boolean",
-                                "description": "Set true ONLY if the user explicitly asked to replace an existing file. Otherwise leave it out. Default false.",
+                "description": "Set true ONLY if the user explicitly asked to replace an existing file. Otherwise leave it out. Default false.",
             },
         },
         "required": ["path", "content"],
