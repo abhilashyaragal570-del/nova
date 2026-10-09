@@ -11,7 +11,8 @@ from workflows.executor import WorkflowExecutor
 from workflows.gemini_planner import make_planner
 from workflows.models import WorkflowStatus
 from workflows.runner import list_runs, resume_workflow, run_goal
-from workflows.store import WorkflowStore
+from workflows.store import StoreError, WorkflowStore
+from workflows.store_factory import create_workflow_store
 
 DEADLINE_SECONDS = 600.0
 
@@ -41,7 +42,12 @@ def main(argv: list[str] | None = None, store: WorkflowStore | None = None) -> i
     goal = " ".join(args.goal).strip()
     if sum([bool(goal), bool(args.resume), bool(args.list)]) != 1:
         parser.error("give a goal, or use exactly one of --resume ID or --list")
-    store = store if store is not None else WorkflowStore()
+    if store is None:
+        try:
+            store = create_workflow_store()
+        except StoreError as e:
+            print(f"Could not open the workflow store: {e}")
+            return 1
 
     if args.list:
         list_runs(store)
