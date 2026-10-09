@@ -140,3 +140,7 @@ def test_normalize():
         normalize([])
     with pytest.raises(EmbedError):
         normalize(["x"])
+
+def test_signature_names_the_model_and_size():
+    emb, _ = make(dimensions=256)
+    assert emb.signature == "test-model/256"        

@@ -52,6 +52,11 @@ class GeminiEmbedder:
         self.batch_size = max(1, batch_size)
         self._client = client
         self._sleep = sleep
+        
+    @property
+    def signature(self) -> str:
+        """Names the model and vector size. Vectors only compare within one signature."""
+        return f"{self.model}/{self.dimensions}"    
 
     def _get_client(self) -> Any:
         if self._client is None:
