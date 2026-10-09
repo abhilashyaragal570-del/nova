@@ -229,3 +229,23 @@ def test_registry_reports_missing_path(ws):
     reg.register(reader(ws))
     result = reg.execute("read_file", {})
     assert not result.ok and "path" in result.error
+
+
+# ---------- a workspace that has not been created yet ----------
+
+def test_list_before_workspace_exists_is_empty(tmp_path):
+    missing = tmp_path / "fresh"
+    result = lister(missing).run(path=".")
+    assert result.ok and result.output == []
+    assert not missing.exists()  # a read-only tool must not create it
+
+
+def test_list_missing_subfolder_still_fails(ws):
+    result = lister(ws).run(path="nope")
+    assert not result.ok and "does not exist" in result.error
+
+
+def test_write_creates_a_missing_workspace(tmp_path):
+    fresh = tmp_path / "fresh"
+    assert writer(fresh).run(path="a.txt", content="x").ok
+    assert lister(fresh).run().output[0]["name"] == "a.txt"    
