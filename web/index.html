@@ -101,6 +101,24 @@
     background: #3b5bdb; color: #fff; font-size: 15px; cursor: pointer;
   }
   #send.stop { background: #c92a2a; }
+  #approvals { padding: 0 16px; }
+  .approval {
+    margin: 8px 0; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid #b08900; background: #2a2616;
+  }
+  .approval .title { font-size: 14px; margin-bottom: 6px; }
+  .approval pre {
+    margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto;
+    background: #15171c; font-family: Consolas, monospace; font-size: 13px;
+    max-height: 160px; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .approval button {
+    padding: 7px 16px; margin-right: 8px; border: none; border-radius: 6px;
+    color: #fff; font-size: 14px; cursor: pointer;
+  }
+  .approval .yes { background: #2b8a3e; }
+  .approval .no { background: #c92a2a; }
+  .approval button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -117,6 +135,7 @@
     <span id="status"></span>
   </div>
   <div id="chat"></div>
+  <div id="approvals"></div>
   <form id="form">
     <input id="box" type="text" placeholder="Message Nova..." autocomplete="off" autofocus>
     <button id="send" type="submit">Send</button>
@@ -339,6 +358,69 @@
 
   switchTo("main");
   loadSystem();
+
+  // ---- Tool approvals: poll the server and show Approve / Deny cards ----
+  const approvalsBox = document.getElementById("approvals");
+  const shownApprovals = new Map();
+
+  async function answerApproval(id, approved) {
+    const card = shownApprovals.get(id);
+    if (card) card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    try {
+      await fetch("/approvals/" + encodeURIComponent(id), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: approved }),
+      });
+    } catch (err) {}
+    pollApprovals();
+  }
+
+  function buildApprovalCard(item) {
+    const card = document.createElement("div");
+    card.className = "approval";
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = "Nova wants to run: " + item.tool;
+    const args = document.createElement("pre");
+    args.textContent = item.arguments;
+    const yes = document.createElement("button");
+    yes.type = "button";
+    yes.className = "yes";
+    yes.textContent = "Approve";
+    yes.addEventListener("click", () => answerApproval(item.id, true));
+    const no = document.createElement("button");
+    no.type = "button";
+    no.className = "no";
+    no.textContent = "Deny";
+    no.addEventListener("click", () => answerApproval(item.id, false));
+    card.append(title, args, yes, no);
+    return card;
+  }
+
+  async function pollApprovals() {
+    try {
+      const res = await fetch("/approvals");
+      if (!res.ok) return;
+      const items = await res.json();
+      const live = new Set(items.map((i) => i.id));
+      for (const [id, card] of shownApprovals) {
+        if (!live.has(id)) {
+          card.remove();
+          shownApprovals.delete(id);
+        }
+      }
+      for (const item of items) {
+        if (!shownApprovals.has(item.id)) {
+          const card = buildApprovalCard(item);
+          shownApprovals.set(item.id, card);
+          approvalsBox.appendChild(card);
+        }
+      }
+    } catch (err) {}
+  }
+
+  setInterval(pollApprovals, 1000);
 </script>
 </body>
 </html>
