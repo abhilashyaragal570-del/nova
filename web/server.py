@@ -10,6 +10,7 @@ from google.genai import errors
 
 from app.chat import new_chat, SYSTEM_PROMPT
 from app.llm import ask as model
+from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.tool_loop import run_turn
 from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
@@ -20,6 +21,7 @@ from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
+from web.agents_api import register_agent_routes
 from web.approvals import ApprovalBroker
 from web.workflow_runs import Busy, WorkflowManager
 from workflows.executor import WorkflowExecutor
@@ -46,6 +48,10 @@ for _tool in (
     DocumentSearchTool(),
 ):
     web_registry.register(_tool)
+
+# Agents get a restricted copy of web_registry with the same policy, so any
+# tool that needs approval shows the same Approve / Deny card as chat.
+register_agent_routes(app, web_registry, store, llm_client, MODEL_NAME)
 
 # Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
 WORKFLOW_DEADLINE_SECONDS = 600.0
