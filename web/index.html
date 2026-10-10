@@ -204,6 +204,7 @@
     const items = await res.json();
     convs.innerHTML = "";
     for (const c of items) {
+      if (c.title.startsWith("Agent:")) continue;
       const row = document.createElement("div");
       row.className = "conv" + (c.id === currentId ? " active" : "");
       const t = document.createElement("span");

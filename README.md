@@ -139,7 +139,7 @@ Besides the main chat, Nova has small agents that each do one job with only the 
 
 An agent gets a copy of the main tool registry that holds only its tools, and the copy keeps the same approval policy and timeouts. A notes agent can't search the web or write files because those tools aren't there for it to call.
 
-Each agent keeps its own saved conversation, separate from your main chat. A session resumes where the last one ended, in the terminal and in the web API alike.
+Each agent keeps its own saved conversation, separate from your main chat. A session resumes where the last one ended, in the terminal and in the web page alike.
 
 ### In the terminal
 
@@ -171,9 +171,13 @@ The reply is labelled with the agent that answered. The model can only choose fr
 
 Type `/agent` at the `You:` prompt to list the agents, or `/agent notes` to talk to one. Type `exit` to come back to the main chat.
 
+### In the web app
+
+The web page has a **Chat with:** dropdown under the header. It lists the agents, and picking one shows its description and tools. Each agent keeps its own saved conversation, and **Clear this agent's chat** deletes it. Pick **Nova (main chat)** to go back to the normal chat. Agent conversations are not listed in the sidebar.
+
 ### In the web API
 
-The agent routes sit behind the same password as the rest of the app. There is no agent panel in the web page yet.
+The agent routes sit behind the same password as the rest of the app.
 
 - `GET /api/agents` lists the agents and their tools
 - `POST /api/agents/<name>/chat` with `{"message": "..."}` streams the reply as plain text, followed by a token line after a `\x00` byte, like `/chat`
@@ -223,9 +227,9 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), and specialized agents with routing in the terminal and a web API.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), specialized agents with routing in the terminal, a web API and an agent panel in the web page.
 
-Planned next: an agent panel in the web page.
+Planned next: document upload in the web app, long-term memory, evaluation and logging, Docker, and a FastAPI backend.
 
 ## License
 
