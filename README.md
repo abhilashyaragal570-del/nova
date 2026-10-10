@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
 
 ## Features
 
@@ -11,12 +11,13 @@ Nova is a password-protected AI assistant built with Python and the Google Gemin
 - Tool-using agent: Gemini decides when to call a built-in tool
 - Built-in tools: calculator, file tools, web search, an API request tool and document search
 - Document search: add your own `.txt` and `.md` files with `python -m rag add`, and Nova answers from them and names the source file
+- Specialized agents: a researcher, a notes agent and a read-only file agent, each with only the tools it needs, plus an auto mode that routes each question to the right one
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
 - Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
 - Token usage shown after every reply
-- Terminal commands: `/clear`, `/history`, `/model` and `/system`
+- Terminal commands: `/clear`, `/history`, `/model`, `/system` and `/agent`
 - API keys, model name and password kept in a `.env` file
 
 ## Setup
@@ -62,7 +63,7 @@ Nova is a password-protected AI assistant built with Python and the Google Gemin
 
         python -m app.chat
 
-Type `exit` to quit, `/clear` to forget the conversation, `/history` to see recent messages, `/model` to see the model in use, or `/system` to see or change the personality. A tool that changes things asks you `[y/N]` in the terminal first.
+Type `exit` to quit, `/clear` to forget the conversation, `/history` to see recent messages, `/model` to see the model in use, `/system` to see or change the personality, or `/agent` to talk to a specialized agent (see Specialized agents below). A tool that changes things asks you `[y/N]` in the terminal first.
 
 ### Web app
 
@@ -127,12 +128,68 @@ Click **Workflows**, type a goal and click **Plan**. Review the plan, then click
 - **Cancel** stops the workflow after the current step.
 - A workflow stops after 10 minutes.
 
+## Specialized agents
+
+Besides the main chat, Nova has small agents that each do one job with only the tools that job needs:
+
+- `researcher`: web search and the calculator, for current facts and arithmetic
+- `notes`: document search only, so it answers only from files you added with `python -m rag add`
+- `files`: lists and reads files in `workspace/`. Read-only
+- `nova`: the general chat with every tool. Auto mode uses it for anything the specialists don't cover. It is the only agent that can write files or call APIs, and each of those still asks you first
+
+An agent gets a copy of the main tool registry that holds only its tools, and the copy keeps the same approval policy and timeouts. A notes agent can't search the web or write files because those tools aren't there for it to call.
+
+Each agent keeps its own saved conversation, separate from your main chat. A session resumes where the last one ended, in the terminal and in the web API alike.
+
+### In the terminal
+
+        python -m agents                      show usage and the list of agents
+        python -m agents notes                chat with one agent
+        python -m agents notes --clear        delete that agent's saved conversation
+        python -m agents --route "my question"  show which agent would handle it
+
+Type `exit` to leave an agent chat. Commands like `--clear` go in PowerShell or your shell, not at the `You:` prompt.
+
+### Auto mode
+
+        python -m agents --auto
+        python -m agents --auto --smart
+        python -m agents nova --clear
+
+Each message goes to the first of these that applies:
+
+1. The agent you pinned with `/use <agent>` (type `/auto` to go back to routing)
+2. `nova`, if the message asks to create, write, save, edit or delete a file
+3. The agent a simple keyword rule picks: `notes` for "my notes" or "my documents", `files` for file names and "list files", `researcher` for words like "latest", "news", "weather" and for arithmetic
+4. The previous agent, if the message is four words or fewer ("and tomorrow?")
+5. With `--smart` only: the model picks an agent. This costs one extra small Gemini call per message that no rule matched, and it isn't counted in the token line
+6. `nova`
+
+The reply is labelled with the agent that answered. The model can only choose from the agents above, and it can never move a file-writing request away from `nova`.
+
+### Inside the terminal chat
+
+Type `/agent` at the `You:` prompt to list the agents, or `/agent notes` to talk to one. Type `exit` to come back to the main chat.
+
+### In the web API
+
+The agent routes sit behind the same password as the rest of the app. There is no agent panel in the web page yet.
+
+- `GET /api/agents` lists the agents and their tools
+- `POST /api/agents/<name>/chat` with `{"message": "..."}` streams the reply as plain text, followed by a token line after a `\x00` byte, like `/chat`
+- `GET /api/agents/<name>/history` returns the saved messages
+- `DELETE /api/agents/<name>/history` clears them
+
+`nova` and auto routing are not exposed over the web.
+
 ## Storage
 
 Conversations, workflow runs and indexed documents are saved through small interfaces, so the storage can change without touching the rest of the app:
 
 - **Files (default):** the main chat in `history.json`, other chats in `conversations/`, workflow runs and their event logs in `workflow_data/`, indexed documents in `rag_data/`.
 - **PostgreSQL:** set `DATABASE_URL`. Nova creates its tables on first use: `conversations`, `workflow_runs`, `workflow_events` and `rag_chunks`.
+
+Agent conversations use the same conversation storage as other chats, each under its own fixed id, so they never touch the main chat.
 
 ## Deploy to Render
 
@@ -166,9 +223,9 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, and document search over your own files (RAG).
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), and specialized agents with routing in the terminal and a web API.
 
-Planned next: specialized agents.
+Planned next: an agent panel in the web page.
 
 ## License
 
