@@ -63,7 +63,7 @@ def main():
     system_prompt = SYSTEM_PROMPT
     chat = new_chat(messages, system_prompt)
     total_tokens = 0
-    print("Nova is ready. Commands: exit, /clear, /history, /model, /system")
+    print("Nova is ready. Commands: exit, /clear, /history, /model, /system, /agent")
     if messages:
         print(f"(Loaded {len(messages)} earlier messages.)")
     print()
@@ -88,6 +88,12 @@ def main():
             continue
         if user_input.lower() == "/model":
             print("Nova: Using model " + MODEL + "\n")
+            continue
+        if user_input.lower() == "/agent" or user_input.lower().startswith("/agent "):
+            from agents.cli import run_agent_from_chat
+
+            run_agent_from_chat(user_input[len("/agent"):].strip(), registry, store)
+            chat = new_chat(messages, system_prompt)
             continue
         if user_input.lower() == "/history":
             show_history(messages)
