@@ -1,10 +1,25 @@
-"""Usage: python -m agents <name> [--clear]
-       python -m agents --auto [--smart]
-       python -m agents nova --clear
-       python -m agents --route <question>"""
+"""Run Nova's specialized agents from the terminal. See USAGE below."""
 import sys
 
 from agents.definitions import AgentError, get_agent, list_agents
+
+USAGE = """Usage:
+  python -m agents <name>             chat with one agent (resumes its saved chat)
+  python -m agents <name> --clear     delete that agent's saved conversation
+  python -m agents --auto             pick an agent for each question
+  python -m agents --auto --smart     same, and ask the model when no rule matches
+  python -m agents nova --clear       delete the general chat used by --auto
+  python -m agents --route <text>     show which agent would handle <text>
+
+In --auto mode: /use <agent> pins an agent, /auto goes back to routing.
+"""
+
+
+def print_usage() -> None:
+    print(USAGE)
+    print("Available agents:")
+    for spec in list_agents():
+        print(f"  {spec.name:<12} {spec.description}")
 
 
 def _run_auto(smart: bool) -> int:
@@ -35,42 +50,7 @@ def _run_auto(smart: bool) -> int:
     return 0
 
 
-def main(argv) -> int:
-    if len(argv) >= 3 and argv[1] == "--route":
-        from agents.router import route
-
-        name = route(" ".join(argv[2:]))
-        print(name or "no agent matches (use the normal Nova chat)")
-        return 0
-
-    if argv[1:2] == ["--auto"] and (len(argv) == 2 or argv[2:] == ["--smart"]):
-        return _run_auto(smart=len(argv) == 3)
-
-    if len(argv) == 3 and argv[1].lower() == "nova" and argv[2] == "--clear":
-        from agents.history import conversation_id
-        from app.chat import store
-
-        store.delete(conversation_id("nova"))
-        print("Cleared the saved nova conversation.")
-        return 0
-
-    clear = len(argv) == 3 and argv[2] == "--clear"
-    if len(argv) != 2 and not clear:
-        print("Usage: python -m agents <name> [--clear]\n\nAvailable agents:")
-        for spec in list_agents():
-            print(f"  {spec.name:<12} {spec.description}")
-        print("\n--auto picks an agent for each question (general chat if none fits).")
-        print("--auto --smart also asks the model when no rule matches.")
-        print("--clear deletes that agent's saved conversation.")
-        print("nova --clear deletes the general chat used by --auto.")
-        print("--route <question> shows which agent would handle a question.")
-        return 1
-    try:
-        spec = get_agent(argv[1])
-    except AgentError as e:
-        print(e)
-        return 1
-
+def _run_agent(spec, clear: bool) -> int:
     from agents.factory import new_agent_chat
     from agents.history import (
         clear_messages,
@@ -99,6 +79,37 @@ def main(argv) -> int:
         save=lambda m: save_messages(store, spec, m),
     )
     return 0
+
+
+def main(argv) -> int:
+    if len(argv) >= 3 and argv[1] == "--route":
+        from agents.router import route
+
+        name = route(" ".join(argv[2:]))
+        print(name or "no agent matches (use the normal Nova chat)")
+        return 0
+
+    if argv[1:2] == ["--auto"] and (len(argv) == 2 or argv[2:] == ["--smart"]):
+        return _run_auto(smart=len(argv) == 3)
+
+    if len(argv) == 3 and argv[1].lower() == "nova" and argv[2] == "--clear":
+        from agents.history import conversation_id
+        from app.chat import store
+
+        store.delete(conversation_id("nova"))
+        print("Cleared the saved nova conversation.")
+        return 0
+
+    clear = len(argv) == 3 and argv[2] == "--clear"
+    if len(argv) != 2 and not clear:
+        print_usage()
+        return 1
+    try:
+        spec = get_agent(argv[1])
+    except AgentError as e:
+        print(e)
+        return 1
+    return _run_agent(spec, clear)
 
 
 if __name__ == "__main__":
