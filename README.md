@@ -4,6 +4,16 @@
 
 Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
 
+## Screenshots
+
+Nova answering a question from my own notes and naming the source file (`garden.md`):
+
+![Nova answering a question from garden.md](docs/documents.png)
+
+The approval card that appears before a tool changes anything:
+
+![Nova approval card before a write action](docs/approval.png)
+
 ## Architecture
 
 ```mermaid
