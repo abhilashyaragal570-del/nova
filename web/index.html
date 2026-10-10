@@ -9,74 +9,38 @@
 <style>
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body {
-    margin: 0; height: 100vh; display: flex;
-    font-family: system-ui, Segoe UI, sans-serif;
-    background: #15171c; color: #e8e8ea;
-  }
-  #sidebar {
-    width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
-    border-right: 1px solid #2a2d35; background: #181a20;
-  }
-  #newchat {
-    margin: 12px; padding: 9px 12px; border-radius: 8px; cursor: pointer;
-    border: 1px solid #3a3e48; background: #22252c; color: #e8e8ea; font-size: 14px;
-  }
+  body { margin: 0; height: 100vh; display: flex; font-family: system-ui, Segoe UI, sans-serif; background: #15171c; color: #e8e8ea; }
+  #sidebar { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #2a2d35; background: #181a20; }
+  #newchat { margin: 12px; padding: 9px 12px; border-radius: 8px; cursor: pointer; border: 1px solid #3a3e48; background: #22252c; color: #e8e8ea; font-size: 14px; }
   #newchat:hover { background: #2c3039; }
   #convs { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-  .conv {
-    display: flex; align-items: center; gap: 6px; padding: 8px 10px;
-    border-radius: 8px; cursor: pointer; font-size: 14px; color: #b8b8c0;
-  }
+  .conv { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; color: #b8b8c0; }
   .conv:hover { background: #22252c; }
   .conv.active { background: #2a2e38; color: #fff; }
   .conv .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .conv .x {
-    background: none; border: none; color: #7d808a; cursor: pointer;
-    font-size: 16px; line-height: 1; padding: 0 2px;
-  }
+  .conv .x { background: none; border: none; color: #7d808a; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
   .conv .x:hover { color: #ff7b7b; }
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  header {
-    padding: 12px 16px; border-bottom: 1px solid #2a2d35;
-    display: flex; align-items: center; justify-content: space-between;
-  }
+  header { padding: 12px 16px; border-bottom: 1px solid #2a2d35; display: flex; align-items: center; justify-content: space-between; }
   header h1 { margin: 0; font-size: 18px; }
-  #wftoggle {
-    padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px;
-    background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer;
-  }
+  #wftoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
   #wftoggle:hover { background: #2c3039; }
-  #personality {
-    display: flex; gap: 8px; align-items: center;
-    padding: 10px 16px; border-bottom: 1px solid #2a2d35;
-    font-size: 14px; color: #b8b8c0;
-  }
-  #prompt {
-    flex: 1; padding: 8px 10px; border-radius: 6px;
-    border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px;
-  }
-  #set {
-    padding: 8px 14px; border: 1px solid #3a3e48; border-radius: 6px;
-    background: #22252c; color: #e8e8ea; cursor: pointer;
-  }
+  #agentbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #2a2d35; font-size: 14px; color: #b8b8c0; }
+  #agentselect { padding: 7px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: #e8e8ea; font-size: 14px; }
+  #agentclear { padding: 7px 12px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
+  #agentclear:hover { background: #2c3039; }
+  #agentinfo { flex: 1; min-width: 160px; font-size: 13px; color: #7d808a; overflow-wrap: anywhere; }
+  #personality { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #2a2d35; font-size: 14px; color: #b8b8c0; }
+  #prompt { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px; }
+  #set { padding: 8px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; cursor: pointer; }
   #set:hover { background: #2c3039; }
   #status { min-width: 60px; font-size: 13px; color: #7bd88f; }
-  #wfpanel {
-    display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35;
-    max-height: 45vh; overflow-y: auto; font-size: 14px;
-  }
+  #wfpanel { display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35; max-height: 45vh; overflow-y: auto; font-size: 14px; }
   #wfpanel.open { display: block; }
   .wfrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-  #wfgoal {
-    flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 6px;
-    border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px;
-  }
+  #wfgoal { flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px; }
   .wfcheck { font-size: 13px; color: #b8b8c0; white-space: nowrap; }
-  .wfbtn {
-    padding: 7px 14px; border: none; border-radius: 6px;
-    color: #fff; font-size: 14px; cursor: pointer; background: #3b5bdb;
-  }
+  .wfbtn { padding: 7px 14px; border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; background: #3b5bdb; }
   .wfbtn.yes { background: #2b8a3e; }
   .wfbtn.no { background: #c92a2a; }
   .wfbtn:disabled { opacity: 0.5; cursor: default; }
@@ -84,11 +48,7 @@
   #wfmsg:empty, #wferr:empty, #wfstate:empty { display: none; }
   #wferr { color: #ff7b7b; margin-bottom: 6px; }
   #wfstate { margin-bottom: 6px; color: #b8b8c0; }
-  #wfpanel pre {
-    margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto;
-    background: #15171c; font-family: Consolas, monospace; font-size: 13px;
-    white-space: pre-wrap; overflow-wrap: anywhere;
-  }
+  #wfpanel pre { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto; background: #15171c; font-family: Consolas, monospace; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .wftask { display: flex; gap: 10px; padding: 3px 0; }
   .wftask .st { min-width: 84px; font-size: 13px; color: #8a8d96; }
   .wftask .st.running { color: #ffb347; }
@@ -99,69 +59,31 @@
   .wfsaved { display: flex; gap: 10px; align-items: center; padding: 3px 0; font-size: 13px; }
   .wfsaved .s { min-width: 84px; color: #8a8d96; }
   .wfsaved .g { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #chat {
-    flex: 1; overflow-y: auto; padding: 16px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  .msg {
-    max-width: 75%; padding: 10px 14px; border-radius: 12px;
-    line-height: 1.45; overflow-wrap: anywhere;
-  }
+  #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px; line-height: 1.45; overflow-wrap: anywhere; }
   .user { align-self: flex-end; background: #3b5bdb; color: #fff; white-space: pre-wrap; }
   .nova { align-self: flex-start; background: #23262e; }
   .nova .body > :first-child { margin-top: 0; }
   .nova .body > :last-child { margin-bottom: 0; }
   .nova p, .nova ul, .nova ol, .nova pre { margin: 0 0 10px; }
   .nova ul, .nova ol { padding-left: 22px; }
-  .nova code {
-    background: #15171c; padding: 2px 5px; border-radius: 4px;
-    font-family: Consolas, monospace; font-size: 0.92em;
-  }
-  .nova pre {
-    background: #15171c; padding: 10px 12px; border-radius: 8px; overflow-x: auto;
-  }
+  .nova code { background: #15171c; padding: 2px 5px; border-radius: 4px; font-family: Consolas, monospace; font-size: 0.92em; }
+  .nova pre { background: #15171c; padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
   .nova pre code { padding: 0; background: none; }
   .meta { margin-top: 6px; font-size: 12px; color: #7d808a; }
   .meta:empty { display: none; }
   .typing { color: #8a8d96; font-style: italic; }
-  .typing::after {
-    content: "";
-    animation: dots 1.2s steps(1, end) infinite;
-  }
-  @keyframes dots {
-    0%   { content: ""; }
-    25%  { content: "."; }
-    50%  { content: ".."; }
-    75%  { content: "..."; }
-  }
-  form {
-    display: flex; gap: 8px; padding: 12px 16px;
-    border-top: 1px solid #2a2d35;
-  }
-  #box {
-    flex: 1; padding: 10px 12px; border-radius: 8px;
-    border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 15px;
-  }
-  #send {
-    min-width: 76px; padding: 10px 18px; border: none; border-radius: 8px;
-    background: #3b5bdb; color: #fff; font-size: 15px; cursor: pointer;
-  }
+  .typing::after { content: ""; animation: dots 1.2s steps(1, end) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #2a2d35; }
+  #box { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 15px; }
+  #send { min-width: 76px; padding: 10px 18px; border: none; border-radius: 8px; background: #3b5bdb; color: #fff; font-size: 15px; cursor: pointer; }
   #send.stop { background: #c92a2a; }
   #approvals { padding: 0 16px; }
-  .approval {
-    margin: 8px 0; padding: 12px 14px; border-radius: 10px;
-    border: 1px solid #b08900; background: #2a2616;
-  }
+  .approval { margin: 8px 0; padding: 12px 14px; border-radius: 10px; border: 1px solid #b08900; background: #2a2616; }
   .approval .title { font-size: 14px; margin-bottom: 6px; }
-  .approval pre {
-    margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto;
-    background: #15171c; font-family: Consolas, monospace; font-size: 13px;
-    max-height: 160px; white-space: pre-wrap; overflow-wrap: anywhere;
-  }
-  .approval button {
-    padding: 7px 16px; margin-right: 8px; border: none; border-radius: 6px;
-    color: #fff; font-size: 14px; cursor: pointer;
-  }
+  .approval pre { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; overflow-x: auto; background: #15171c; font-family: Consolas, monospace; font-size: 13px; max-height: 160px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .approval button { padding: 7px 16px; margin-right: 8px; border: none; border-radius: 6px; color: #fff; font-size: 14px; cursor: pointer; }
   .approval .yes { background: #2b8a3e; }
   .approval .no { background: #c92a2a; }
   .approval button:disabled { opacity: 0.5; cursor: default; }
@@ -177,6 +99,14 @@
     <h1>Nova</h1>
     <button id="wftoggle" type="button">Workflows</button>
   </header>
+  <div id="agentbar" hidden>
+    <label for="agentselect">Chat with:</label>
+    <select id="agentselect">
+      <option value="">Nova (main chat)</option>
+    </select>
+    <button id="agentclear" type="button" hidden>Clear this agent's chat</button>
+    <span id="agentinfo"></span>
+  </div>
   <div id="personality">
     <label for="prompt">Personality:</label>
     <input id="prompt" type="text" autocomplete="off">
@@ -216,9 +146,15 @@
   const setBtn = document.getElementById("set");
   const status = document.getElementById("status");
   const convs = document.getElementById("convs");
+  const agentBar = document.getElementById("agentbar");
+  const agentSelect = document.getElementById("agentselect");
+  const agentInfo = document.getElementById("agentinfo");
+  const agentClear = document.getElementById("agentclear");
 
   let currentId = "main";
+  let currentAgent = null;
   let controller = null;
+  const agentSpecs = new Map();
 
   function renderMarkdown(el, text) {
     if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
@@ -253,6 +189,16 @@
     send.classList.toggle("stop", on);
   }
 
+  function updateAgentUi() {
+    box.placeholder = currentAgent ? "Message " + currentAgent + "..." : "Message Nova...";
+    agentClear.hidden = !currentAgent;
+    agentSelect.value = currentAgent || "";
+    const spec = currentAgent ? agentSpecs.get(currentAgent) : null;
+    agentInfo.textContent = spec
+      ? spec.description + " Tools: " + spec.tools.join(", ") + "."
+      : "";
+  }
+
   async function refreshList() {
     const res = await fetch("/conversations");
     const items = await res.json();
@@ -284,6 +230,8 @@
       controller = null;
       setStreaming(false);
     }
+    currentAgent = null;
+    updateAgentUi();
     currentId = id;
     chat.innerHTML = "";
     const res = await fetch("/conversations/" + id);
@@ -298,6 +246,64 @@
     }
     refreshList();
   }
+
+  async function switchToAgent(name) {
+    if (controller) {
+      controller.abort();
+      controller = null;
+      setStreaming(false);
+    }
+    currentAgent = name;
+    currentId = "";
+    updateAgentUi();
+    chat.innerHTML = "";
+    refreshList();
+    try {
+      const res = await fetch("/api/agents/" + encodeURIComponent(name) + "/history");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (currentAgent !== name) return;
+      for (const m of data.messages) {
+        addMessage(m.role === "user" ? "user" : "nova", m.text);
+      }
+    } catch (err) {}
+    box.focus();
+  }
+
+  async function loadAgents() {
+    try {
+      const res = await fetch("/api/agents");
+      if (!res.ok) return;
+      const items = await res.json();
+      for (const a of items) {
+        agentSpecs.set(a.name, a);
+        const opt = document.createElement("option");
+        opt.value = a.name;
+        opt.textContent = a.name;
+        agentSelect.appendChild(opt);
+      }
+      agentBar.hidden = items.length === 0;
+    } catch (err) {}
+  }
+
+  agentSelect.addEventListener("change", () => {
+    const name = agentSelect.value;
+    if (name) {
+      switchToAgent(name);
+    } else {
+      switchTo("main");
+    }
+  });
+
+  agentClear.addEventListener("click", async () => {
+    if (!currentAgent || controller) return;
+    const name = currentAgent;
+    if (!confirm("Clear the saved " + name + " conversation?")) return;
+    try {
+      await fetch("/api/agents/" + encodeURIComponent(name) + "/history", { method: "DELETE" });
+    } catch (err) {}
+    if (currentAgent === name) chat.innerHTML = "";
+  });
 
   async function removeConv(id) {
     const msg = id === "main" ? "Clear the Main chat?" : "Delete this chat?";
@@ -356,50 +362,64 @@
     if (!text) return;
     box.value = "";
     const myId = currentId;
+    const agent = currentAgent;
+    const label = agent || "Nova";
+    const url = agent ? "/api/agents/" + encodeURIComponent(agent) + "/chat" : "/chat";
+    const payload = agent ? { message: text } : { message: text, conversation: myId };
     const myController = new AbortController();
     controller = myController;
     setStreaming(true);
     addMessage("user", text);
     const nova = addMessage("nova", "");
-    nova.body.textContent = "Nova is typing";
+    nova.body.textContent = label + " is typing";
     nova.body.classList.add("typing");
     let started = false;
     let full = "";
     try {
-      const res = await fetch("/chat", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, conversation: myId }),
+        body: JSON.stringify(payload),
         signal: myController.signal,
       });
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        full += decoder.decode(value, { stream: true });
-        const cut = full.indexOf("\u0000");
-        const replyText = cut === -1 ? full : full.slice(0, cut);
-        if (replyText) {
-          if (!started) {
-            nova.body.classList.remove("typing");
-            started = true;
-          }
-          renderMarkdown(nova.body, replyText);
-          chat.scrollTop = chat.scrollHeight;
-        }
-      }
-      const cut = full.indexOf("\u0000");
-      if (cut !== -1) {
+      if (!res.ok) {
+        let msg = "Error " + res.status;
         try {
-          const u = JSON.parse(full.slice(cut + 1));
-          nova.meta.textContent =
-            "tokens: prompt " + u.prompt + " \u00b7 reply " + u.reply + " \u00b7 total " + u.total;
+          const j = await res.json();
+          if (j.error) msg = j.error;
         } catch (err) {}
-      }
-      if (!started) {
         nova.body.classList.remove("typing");
-        nova.body.textContent = "[No reply received.]";
+        nova.body.textContent = "[" + msg + "]";
+      } else {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          full += decoder.decode(value, { stream: true });
+          const cut = full.indexOf("\u0000");
+          const replyText = cut === -1 ? full : full.slice(0, cut);
+          if (replyText) {
+            if (!started) {
+              nova.body.classList.remove("typing");
+              started = true;
+            }
+            renderMarkdown(nova.body, replyText);
+            chat.scrollTop = chat.scrollHeight;
+          }
+        }
+        const cut = full.indexOf("\u0000");
+        if (cut !== -1) {
+          try {
+            const u = JSON.parse(full.slice(cut + 1));
+            nova.meta.textContent =
+              "tokens: prompt " + u.prompt + " \u00b7 reply " + u.reply + " \u00b7 total " + u.total;
+          } catch (err) {}
+        }
+        if (!started) {
+          nova.body.classList.remove("typing");
+          nova.body.textContent = "[No reply received.]";
+        }
       }
     } catch (err) {
       nova.body.classList.remove("typing");
@@ -418,11 +438,12 @@
       setStreaming(false);
     }
     box.focus();
-    refreshList();
+    if (!agent) refreshList();
   });
 
   switchTo("main");
   loadSystem();
+  loadAgents();
 
   // ---- Tool approvals: poll the server and show Approve / Deny cards ----
   const approvalsBox = document.getElementById("approvals");
