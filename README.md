@@ -4,6 +4,81 @@
 
 Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
 
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Clients
+        WEB["Web page: chat, agent dropdown, workflows panel"]
+        CLI["Terminal: app.chat, agents, workflows, rag"]
+    end
+
+    subgraph Server["Flask server (password protected)"]
+        API["Chat, agent and workflow routes"]
+        APPR["Approval cards: Approve / Deny"]
+    end
+
+    subgraph Agents["Specialized agents"]
+        ROUTER["Router: pinned, keyword rules, optional model pick"]
+        RESEARCHER["researcher"]
+        NOTES["notes"]
+        FILES["files (read-only)"]
+        NOVA["nova (all tools)"]
+    end
+
+    subgraph Workflows["Workflow engine"]
+        PLAN["Planner and critic"]
+        PAPPR["Plan approval"]
+        RUN["Executor: retries, cancel, timeout, resume"]
+    end
+
+    subgraph Tools["Tool registry and policy"]
+        POLICY["Read-only flags, approval for changes, timeouts, URL blocking"]
+        CALC["Calculator"]
+        FTOOLS["File tools in workspace/"]
+        SEARCH["Web search"]
+        APIT["API request"]
+        DOCS["Document search"]
+    end
+
+    GEMINI["Gemini API: chat, tool calling, embeddings"]
+
+    subgraph Storage["Storage behind one interface"]
+        LOCAL["Local files (default)"]
+        PG["PostgreSQL (when DATABASE_URL is set)"]
+    end
+
+    WEB --> API
+    CLI --> API
+    API --> APPR
+    API --> ROUTER
+    API --> PLAN
+    ROUTER --> RESEARCHER
+    ROUTER --> NOTES
+    ROUTER --> FILES
+    ROUTER --> NOVA
+    PLAN --> PAPPR --> RUN
+    RESEARCHER --> POLICY
+    NOTES --> POLICY
+    FILES --> POLICY
+    NOVA --> POLICY
+    RUN --> POLICY
+    POLICY --> CALC
+    POLICY --> FTOOLS
+    POLICY --> SEARCH
+    POLICY --> APIT
+    POLICY --> DOCS
+    DOCS --> GEMINI
+    ROUTER --> GEMINI
+    RUN --> GEMINI
+    API --> LOCAL
+    API --> PG
+    DOCS --> LOCAL
+    DOCS --> PG
+```
+
+Every tool call goes through one policy layer. Agents only see the tools they are given, and anything that changes things waits for your approval.
+
 ## Features
 
 - Password-protected web interface built with Flask, with saved conversations and an editable system prompt
