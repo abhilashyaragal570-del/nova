@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 from google.genai import errors
 
-from app.chat import new_chat, SYSTEM_PROMPT
+from app.chat import new_chat, SYSTEM_PROMPT, fact_store
 from app.llm import ask as model
 from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.tool_loop import run_turn
@@ -23,12 +23,13 @@ from tools.api_request import ApiRequestTool
 from tools.calculator import CalculatorTool
 from tools.document_search import DocumentSearchTool
 from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
+from tools.memory_tools import ForgetTool, ListMemoriesTool, RememberTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
 from web.agents_api import register_agent_routes
 from web.approvals import ApprovalBroker
-from web.usage_api import register_usage_routes  # NEW
+from web.usage_api import register_usage_routes
 from web.workflow_runs import Busy, WorkflowManager
 from workflows.executor import WorkflowExecutor
 from workflows.gemini_planner import make_planner
@@ -55,6 +56,10 @@ for _tool in (
     WriteFileTool(),
     ApiRequestTool(),
     DocumentSearchTool(),
+    # Long-term memory: remember and forget need approval, like write_file.
+    RememberTool(fact_store),
+    ForgetTool(fact_store),
+    ListMemoriesTool(fact_store),
 ):
     web_registry.register(_tool)
 
@@ -63,7 +68,7 @@ for _tool in (
 register_agent_routes(app, web_registry, store, llm_client, MODEL_NAME)
 
 # The usage report page and its JSON data.
-register_usage_routes(app, WEB_DIR)  # NEW
+register_usage_routes(app, WEB_DIR)
 
 # Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
 WORKFLOW_DEADLINE_SECONDS = 600.0

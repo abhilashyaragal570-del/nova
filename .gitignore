@@ -16,3 +16,5 @@ history.json.bak
 conversations_bak/
 rag_data/logs/
 evals/last_results.json
+
+memory_data/

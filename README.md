@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, and optional PostgreSQL storage.
 
 ## Screenshots
 
@@ -23,7 +23,7 @@ flowchart LR
     SRV --> WF["Workflow engine<br/>plan, approve, run, retry, resume"]
     AG --> POL["Tool policy<br/>read-only, approval, timeouts, URL blocking"]
     WF --> POL
-    POL --> TOOLS["Tools<br/>calculator, files, web search, API, document search"]
+    POL --> TOOLS["Tools<br/>calculator, files, web search, API, document search, memory"]
     AG --> LLM["Gemini API<br/>chat, tool calling, embeddings"]
     WF --> LLM
     TOOLS --> LLM
@@ -38,8 +38,9 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Password-protected web interface built with Flask, with saved conversations and an editable system prompt
 - Streaming responses, printed as they are generated
 - Tool-using agent: Gemini decides when to call a built-in tool
-- Built-in tools: calculator, file tools, web search, an API request tool and document search
+- Built-in tools: calculator, file tools, web search, an API request tool, document search and long-term memory
 - Document search: add your own `.txt` and `.md` files from the web app or with `python -m rag add`, and Nova answers from them and names the source file
+- Long-term memory: ask Nova to remember a fact and it knows it in every later chat, in the terminal and in the web app. Saving or forgetting a fact asks for your approval first
 - Specialized agents: a researcher, a notes agent and a read-only file agent, each with only the tools it needs, plus an auto mode that routes each question to the right one
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
@@ -113,8 +114,27 @@ Nova can call these tools when a request needs them:
 - Web search (needs `TAVILY_API_KEY`)
 - API request tool
 - Document search: finds passages in the files you added, from the web app or with `python -m rag add` (see Documents below)
+- Memory: `remember`, `forget` and `list_memories` (see Long-term memory below)
 
 Tools are checked before they run. Read-only tools run freely, tools that change things need your approval, every call has a timeout, and the web and API tools refuse unsafe URLs.
+
+## Long-term memory
+
+Nova can remember short facts about you across chats, for example "I prefer short answers". Tell it in plain words:
+
+- "Remember that I prefer short answers"
+- "What do you remember about me?"
+- "Forget that I prefer short answers"
+
+Saving and forgetting a fact are tools that change things, so each one asks for your approval first (`[y/N]` in the terminal, an Approve / Deny card in the web app). Listing what Nova remembers needs no approval.
+
+- Facts are saved in `memory_data/facts.json`, which is ignored by Git. The terminal chat and the web app share the same file.
+- At the start of every chat, the saved facts are added to the system prompt as background information, not as instructions.
+- Each fact is one line of at most 200 characters, and Nova keeps at most 50 facts. A repeated fact is saved only once.
+- Nova is told to save only what you ask it to remember, never text that came from a web page, a document or another tool.
+- Saved facts are sent to the Gemini API with every chat. Don't save anything you wouldn't send to Google.
+- If the file is damaged, Nova moves it aside to `facts.json.bad` and starts with empty memory instead of failing.
+- The facts file is a local file, not part of PostgreSQL. On a host with a disk that is wiped on restart (such as Render's free plan), saved facts are lost on restart.
 
 ## Documents
 
@@ -245,6 +265,8 @@ Conversations, workflow runs and indexed documents are saved through small inter
 
 Agent conversations use the same conversation storage as other chats, each under its own fixed id, so they never touch the main chat.
 
+Long-term memory facts are always a local file, `memory_data/facts.json`, whatever `DATABASE_URL` is set to.
+
 ## Deploy to Render
 
 1. Push the repo to GitHub and create a **Web Service** on Render from it.
@@ -258,13 +280,13 @@ Keep `--workers 1`. The workflow that is planning or running lives in the server
 Notes for the free plan:
 
 - The service sleeps after about 15 minutes without traffic, so the first request can take up to a minute.
-- The disk is wiped on every restart, so without `DATABASE_URL`, saved chats, workflow runs and indexed documents are lost.
+- The disk is wiped on every restart, so without `DATABASE_URL`, saved chats, workflow runs and indexed documents are lost. Long-term memory facts are always lost on restart, because they are saved as a local file.
 - A restart also stops a workflow that is running. Its progress is saved, so you can resume it from the panel.
 - Free Render databases expire after 30 days. To renew: create a new free database, replace `DATABASE_URL` in **Environment** with its new Internal Database URL, then delete the old database. Chats and workflow runs saved in the old one are not carried over.
 
 ## Notes
 
-`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations and documents are never pushed to GitHub.
+`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub.
 
 ## Tests
 
@@ -275,20 +297,15 @@ Install the dev requirements and run the tests:
 
 Tests run on every push with GitHub Actions. They use fake models, so they never call Gemini. The PostgreSQL tests are skipped unless `TEST_DATABASE_URL` is set.
 
-## Roadmap
-
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page.
-
-Planned next: long-term memory, evaluation and logging, Docker, and a FastAPI backend.
-
-## License
-
-
 ## Tool usage log and evaluation
 
 Every chat turn (terminal chat, web chat, agents and auto mode) appends one line to `logs/tool_usage.jsonl`. Each line records the time, the source, which tools ran, the tool call count and token usage. It never records your messages or Nova's replies.
 
+When the log reaches 1 MB, it is moved to `tool_usage.jsonl.1` and a fresh log is started. Only one old file is kept, so the log never takes much more than 2 MB. The usage report reads only the current file, so its totals start again after a rotation.
+
 Set `TOOL_LOG_PATH` in the environment or `.env` to write the log somewhere else. The `logs/` folder is ignored by git.
+
+To see the totals, run `python -m app.usage_report` in the terminal, or click **Usage** in the web page header.
 
 To check that Nova picks the right tools, run:
 
@@ -297,6 +314,12 @@ python -m evals.run_evals
 ```
 
 This sends the questions in `evals/questions.json` to Gemini (real API calls, about 6,000 tokens each) using only read-only tools. A question passes when every expected tool was used. A question that expects no tools passes only if none were used. Results are saved to `evals/last_results.json`.
+
+## Roadmap
+
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, and long-term memory.
+
+Planned next: Docker and a FastAPI backend.
 
 ## License
 

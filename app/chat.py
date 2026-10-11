@@ -5,10 +5,13 @@ from app.tool_loop import run_turn
 from app.usage_log import log_turn
 from config import settings
 from memory.conversation_store import MAIN_ID
+from memory.fact_store import FactStore
+from memory.prompt import with_memory
 from memory.store_factory import create_store
 from tools.calculator import CalculatorTool
 from tools.file_tools import ListFilesTool, ReadFileTool, WriteFileTool
 from tools.gemini_adapter import to_gemini_tool
+from tools.memory_tools import ForgetTool, ListMemoriesTool, RememberTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
@@ -17,9 +20,11 @@ from tools.document_search import DocumentSearchTool
 
 SYSTEM_PROMPT = settings.NOVA_SYSTEM_PROMPT
 store = create_store()
+fact_store = FactStore()
 
 # Every tool call passes through this registry. The policy asks you to
-# approve any tool that is not read-only (currently: write_file, api_request).
+# approve any tool that is not read-only (currently: write_file, api_request,
+# remember, forget).
 registry = ToolRegistry(policy=ToolPolicy(confirm=confirm_in_terminal))
 registry.register(CalculatorTool())
 registry.register(WebSearchTool())
@@ -28,6 +33,9 @@ registry.register(ReadFileTool())
 registry.register(WriteFileTool())
 registry.register(ApiRequestTool())
 registry.register(DocumentSearchTool())
+registry.register(RememberTool(fact_store))
+registry.register(ForgetTool(fact_store))
+registry.register(ListMemoriesTool(fact_store))
 
 
 def to_contents(messages):
@@ -52,7 +60,7 @@ def new_chat(messages, system_prompt=SYSTEM_PROMPT):
     return client.chats.create(
         model=MODEL,
         config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
+            system_instruction=with_memory(system_prompt, fact_store),
             tools=[gemini_tool] if gemini_tool else None,
         ),
         history=to_contents(messages),
