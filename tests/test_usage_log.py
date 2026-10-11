@@ -60,13 +60,18 @@ def test_default_path_when_nothing_is_set(tmp_path, monkeypatch):
 
 def test_setting_is_read_from_env_file(tmp_path, monkeypatch):
     monkeypatch.delenv(SETTING_NAME, raising=False)
+    # tmp_path is an absolute path on both Windows and Linux.
+    wanted = tmp_path / "logs" / "mine.jsonl"
     env = tmp_path / ".env"
-    env.write_text('# comment\nTOOL_LOG_PATH="C:/logs/mine.jsonl"\n', encoding="utf-8")
-    assert get_log_path(env_file=env).as_posix() == "C:/logs/mine.jsonl"
+    env.write_text(
+        '# comment\nTOOL_LOG_PATH="' + wanted.as_posix() + '"\n', encoding="utf-8"
+    )
+    assert get_log_path(env_file=env).as_posix() == wanted.as_posix()
 
 
 def test_environment_variable_beats_env_file(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text("TOOL_LOG_PATH=from_file.jsonl\n", encoding="utf-8")
-    monkeypatch.setenv(SETTING_NAME, "C:/from_env.jsonl")
-    assert get_log_path(env_file=env).as_posix() == "C:/from_env.jsonl"
+    wanted = tmp_path / "from_env.jsonl"
+    monkeypatch.setenv(SETTING_NAME, wanted.as_posix())
+    assert get_log_path(env_file=env).as_posix() == wanted.as_posix()
