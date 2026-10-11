@@ -23,8 +23,9 @@
   #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   header { padding: 12px 16px; border-bottom: 1px solid #2a2d35; display: flex; align-items: center; justify-content: space-between; }
   header h1 { margin: 0; font-size: 18px; }
-  #wftoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
-  #wftoggle:hover { background: #2c3039; }
+  .hbtns { display: flex; gap: 8px; }
+  #wftoggle, #doctoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
+  #wftoggle:hover, #doctoggle:hover { background: #2c3039; }
   #agentbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #2a2d35; font-size: 14px; color: #b8b8c0; }
   #agentselect { padding: 7px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: #e8e8ea; font-size: 14px; }
   #agentclear { padding: 7px 12px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
@@ -35,6 +36,16 @@
   #set { padding: 8px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; cursor: pointer; }
   #set:hover { background: #2c3039; }
   #status { min-width: 60px; font-size: 13px; color: #7bd88f; }
+  #docpanel { display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35; max-height: 45vh; overflow-y: auto; font-size: 14px; }
+  #docpanel.open { display: block; }
+  #docfile { flex: 1; min-width: 180px; color: inherit; font-size: 14px; }
+  #docnote { margin-bottom: 8px; font-size: 13px; color: #7d808a; }
+  #docmsg { color: #7bd88f; margin-bottom: 6px; }
+  #docerr { color: #ff7b7b; margin-bottom: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #docmsg:empty, #docerr:empty { display: none; }
+  .docitem { display: flex; gap: 10px; align-items: center; padding: 3px 0; font-size: 13px; }
+  .docitem .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .docitem .c { min-width: 80px; color: #8a8d96; }
   #wfpanel { display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35; max-height: 45vh; overflow-y: auto; font-size: 14px; }
   #wfpanel.open { display: block; }
   .wfrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -97,7 +108,10 @@
 <div id="main">
   <header>
     <h1>Nova</h1>
-    <button id="wftoggle" type="button">Workflows</button>
+    <div class="hbtns">
+      <button id="doctoggle" type="button">Documents</button>
+      <button id="wftoggle" type="button">Workflows</button>
+    </div>
   </header>
   <div id="agentbar" hidden>
     <label for="agentselect">Chat with:</label>
@@ -112,6 +126,17 @@
     <input id="prompt" type="text" autocomplete="off">
     <button id="set" type="button">Set</button>
     <span id="status"></span>
+  </div>
+  <div id="docpanel">
+    <div id="docnote">Add .txt or .md files (up to 300 KB each) and Nova can answer from them. Adding a file sends its text to the Gemini API, so don't add anything you wouldn't send to Google.</div>
+    <div class="wfrow">
+      <input id="docfile" type="file" accept=".txt,.md" multiple>
+      <button id="docaddbtn" class="wfbtn" type="button">Add</button>
+    </div>
+    <div id="docmsg"></div>
+    <div id="docerr"></div>
+    <div class="wfhead">Indexed documents</div>
+    <div id="doclist"></div>
   </div>
   <div id="wfpanel">
     <div id="wfform" class="wfrow">
@@ -508,6 +533,123 @@
   }
 
   setInterval(pollApprovals, 1000);
+
+  // ---- Documents: add, list and remove the files Nova can search ----
+  const docToggle = document.getElementById("doctoggle");
+  const docPanel = document.getElementById("docpanel");
+  const docFile = document.getElementById("docfile");
+  const docAddBtn = document.getElementById("docaddbtn");
+  const docMsg = document.getElementById("docmsg");
+  const docErr = document.getElementById("docerr");
+  const docList = document.getElementById("doclist");
+  let docOpen = false;
+
+  async function loadDocs() {
+    docList.innerHTML = "";
+    let items = [];
+    try {
+      const res = await fetch("/documents");
+      if (!res.ok) {
+        let msg = "Could not load documents.";
+        try {
+          const j = await res.json();
+          if (j.error) msg = j.error;
+        } catch (err) {}
+        docList.textContent = msg;
+        return;
+      }
+      items = await res.json();
+    } catch (err) {
+      docList.textContent = "Could not load documents.";
+      return;
+    }
+    if (!items.length) {
+      docList.textContent = "None yet. Choose a file above and click Add.";
+      return;
+    }
+    for (const d of items) {
+      const row = document.createElement("div");
+      row.className = "docitem";
+      const n = document.createElement("span");
+      n.className = "n";
+      n.textContent = d.source;
+      n.title = d.source;
+      const c = document.createElement("span");
+      c.className = "c";
+      c.textContent = d.chunks + (d.chunks === 1 ? " chunk" : " chunks");
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "wfbtn no";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", () => removeDoc(d.source));
+      row.append(n, c, rm);
+      docList.appendChild(row);
+    }
+  }
+
+  async function addDocs() {
+    const files = Array.from(docFile.files);
+    docMsg.textContent = "";
+    docErr.textContent = "";
+    if (!files.length) {
+      docErr.textContent = "Choose a .txt or .md file first.";
+      return;
+    }
+    docAddBtn.disabled = true;
+    let added = 0;
+    const problems = [];
+    for (const f of files) {
+      docMsg.textContent = "Adding " + f.name + "...";
+      const fd = new FormData();
+      fd.append("file", f);
+      try {
+        const res = await fetch("/documents", { method: "POST", body: fd });
+        let data = {};
+        try { data = await res.json(); } catch (err) {}
+        if (res.ok) {
+          added += 1;
+        } else {
+          problems.push(f.name + ": " + (data.error || "Error " + res.status));
+        }
+      } catch (err) {
+        problems.push(f.name + ": Could not reach the server.");
+      }
+    }
+    docAddBtn.disabled = false;
+    docFile.value = "";
+    docMsg.textContent = added ? "Added " + added + (added === 1 ? " file." : " files.") : "";
+    docErr.textContent = problems.join("\n");
+    loadDocs();
+  }
+
+  async function removeDoc(source) {
+    if (!confirm("Remove " + source + " from Nova's documents?")) return;
+    docMsg.textContent = "";
+    docErr.textContent = "";
+    try {
+      const res = await fetch("/documents/" + encodeURIComponent(source), { method: "DELETE" });
+      if (!res.ok) {
+        let msg = "Could not remove it.";
+        try {
+          const j = await res.json();
+          if (j.error) msg = j.error;
+        } catch (err) {}
+        docErr.textContent = msg;
+      } else {
+        docMsg.textContent = "Removed " + source + ".";
+      }
+    } catch (err) {
+      docErr.textContent = "Could not reach the server.";
+    }
+    loadDocs();
+  }
+
+  docToggle.addEventListener("click", () => {
+    docOpen = !docOpen;
+    docPanel.classList.toggle("open", docOpen);
+    if (docOpen) loadDocs();
+  });
+  docAddBtn.addEventListener("click", addDocs);
 
   // ---- Workflows: plan, approve the plan, watch it run ----
   // Tool steps that change things still show the Approve / Deny cards above.

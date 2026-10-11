@@ -14,6 +14,10 @@ from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.tool_loop import run_turn
 from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
+from rag.embedder import EmbedError, GeminiEmbedder
+from rag.index import RagIndexError
+from rag.index_factory import create_document_index
+from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
 from tools.api_request import ApiRequestTool
 from tools.calculator import CalculatorTool
 from tools.document_search import DocumentSearchTool
@@ -33,6 +37,9 @@ WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
 store = create_store()
 app = Flask(__name__)
+# Room for one file plus the form overhead. Anything bigger is refused
+# before it is read into memory.
+app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_BYTES + 100_000
 
 # Tools that need approval pause until the browser answers Approve or Deny
 # (see web/approvals.py). No answer within the timeout counts as a denial.
@@ -69,6 +76,21 @@ workflow_manager = WorkflowManager(
     make_store=create_workflow_store,
 )
 
+# The document index is created on first use, and the embedder on each
+# upload. Tests replace these two functions with fakes.
+_document_index = None
+
+
+def get_document_index():
+    global _document_index
+    if _document_index is None:
+        _document_index = create_document_index()
+    return _document_index
+
+
+def get_embedder():
+    return GeminiEmbedder()
+
 
 @app.before_request
 def require_password():
@@ -86,6 +108,13 @@ def require_password():
     return Response(
         "Password required", 401, {"WWW-Authenticate": 'Basic realm="Nova"'}
     )
+
+
+@app.errorhandler(413)
+def request_too_large(error):
+    return jsonify(
+        {"error": f"That upload is too large (max {MAX_FILE_BYTES // 1000} KB per file)"}
+    ), 413
 
 
 def load_prompt():
@@ -224,6 +253,43 @@ def chat():
             yield "\x00" + json.dumps(info)
 
     return Response(generate(), mimetype="text/plain")
+
+
+@app.get("/documents")
+def list_documents():
+    try:
+        return jsonify(get_document_index().list_documents())
+    except RagIndexError as e:
+        return jsonify({"error": str(e)}), 503
+
+
+@app.post("/documents")
+def upload_document():
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "Choose a file to upload"}), 400
+    # Read one byte past the limit so a too-big file is noticed, not truncated.
+    data = upload.read(MAX_FILE_BYTES + 1)
+    try:
+        result = add_upload(upload.filename, data, get_document_index(), get_embedder())
+    except IngestError as e:
+        return jsonify({"error": str(e)}), 400
+    except EmbedError as e:
+        return jsonify({"error": f"Could not read the file for search: {e}"}), 502
+    except RagIndexError as e:
+        return jsonify({"error": str(e)}), 409
+    return jsonify(result), 201
+
+
+@app.delete("/documents/<source>")
+def remove_document(source):
+    try:
+        removed = get_document_index().remove_document(source)
+    except RagIndexError as e:
+        return jsonify({"error": str(e)}), 503
+    if not removed:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({"ok": True})
 
 
 @app.get("/approvals")

@@ -2,7 +2,13 @@ import pytest
 
 from rag.embedder import EmbedError
 from rag.file_index import FileDocumentIndex
-from rag.ingest import MAX_FILE_BYTES, IngestError, add_file
+from rag.ingest import (
+    MAX_FILE_BYTES,
+    IngestError,
+    add_file,
+    add_text,
+    add_upload,
+)
 
 
 class FakeEmbedder:
@@ -100,4 +106,80 @@ def test_nothing_is_stored_when_embedding_fails(tmp_path, index):
     path = write(tmp_path, "notes.md", "text")
     with pytest.raises(EmbedError):
         add_file(path, index, FailingEmbedder())
+    assert index.list_documents() == []
+
+
+# --- text and upload entry points (used by the web upload) ---
+
+
+def test_add_text_stores_a_document(index):
+    result = add_text("notes.md", "Nova is an assistant.", index, FakeEmbedder())
+    assert result == {"source": "notes.md", "chunks": 1}
+    assert index.list_documents() == [
+        {"source": "notes.md", "chunks": 1, "model": "fake/3"}
+    ]
+
+
+def test_an_upload_is_stored_from_bytes(index):
+    result = add_upload("notes.md", b"Nova is an assistant.", index, FakeEmbedder())
+    assert result == {"source": "notes.md", "chunks": 1}
+    assert index.list_documents()[0]["source"] == "notes.md"
+
+
+def test_an_upload_with_a_bom_is_read(index):
+    data = "\ufeffhello".encode("utf-8")
+    add_upload("notes.txt", data, index, FakeEmbedder())
+    assert index.list_documents()[0]["source"] == "notes.txt"
+
+
+def test_uploading_the_same_name_again_replaces_it(index):
+    add_upload("notes.md", b"first version", index, FakeEmbedder())
+    add_upload("notes.md", b"second version", index, FakeEmbedder())
+    assert len(index.list_documents()) == 1
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["../../evil/notes.md", "C:\\Users\\me\\notes.md", "folder/notes.md", "/etc/notes.md"],
+)
+def test_an_upload_name_loses_its_folders(index, filename):
+    add_upload(filename, b"text", index, FakeEmbedder())
+    assert index.list_documents()[0]["source"] == "notes.md"
+
+
+@pytest.mark.parametrize("filename", ["", "..", ".", "folder/", None, 5, "bad\x00name.md"])
+def test_an_invalid_upload_name_is_refused(index, filename):
+    with pytest.raises(IngestError):
+        add_upload(filename, b"text", index, FakeEmbedder())
+    assert index.list_documents() == []
+
+
+def test_an_upload_name_that_is_too_long_is_refused(index):
+    with pytest.raises(IngestError):
+        add_upload("a" * 201 + ".md", b"text", index, FakeEmbedder())
+
+
+def test_an_upload_of_another_type_is_refused(index):
+    with pytest.raises(IngestError):
+        add_upload("paper.pdf", b"text", index, FakeEmbedder())
+
+
+def test_an_empty_upload_is_refused(index):
+    with pytest.raises(IngestError):
+        add_upload("empty.md", b"  \n ", index, FakeEmbedder())
+
+
+def test_a_huge_upload_is_refused(index):
+    with pytest.raises(IngestError):
+        add_upload("big.txt", b"a" * (MAX_FILE_BYTES + 1), index, FakeEmbedder())
+
+
+def test_an_upload_that_is_not_text_is_refused(index):
+    with pytest.raises(IngestError):
+        add_upload("binary.txt", b"\xff\xff\xff", index, FakeEmbedder())
+
+
+def test_nothing_is_stored_when_an_upload_fails_to_embed(index):
+    with pytest.raises(EmbedError):
+        add_upload("notes.md", b"text", index, FailingEmbedder())
     assert index.list_documents() == []

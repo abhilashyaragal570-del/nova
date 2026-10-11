@@ -39,7 +39,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Streaming responses, printed as they are generated
 - Tool-using agent: Gemini decides when to call a built-in tool
 - Built-in tools: calculator, file tools, web search, an API request tool and document search
-- Document search: add your own `.txt` and `.md` files with `python -m rag add`, and Nova answers from them and names the source file
+- Document search: add your own `.txt` and `.md` files from the web app or with `python -m rag add`, and Nova answers from them and names the source file
 - Specialized agents: a researcher, a notes agent and a read-only file agent, each with only the tools it needs, plus an auto mode that routes each question to the right one
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
@@ -102,7 +102,7 @@ Open http://127.0.0.1:5000 in your browser. The browser asks for a login. Use an
 
 When Nova wants to run a tool that changes things, such as writing a file or calling an API, a card appears above the message box. Nothing runs until you click **Approve**, and **Deny** cancels it. If you don't answer within 60 seconds, it counts as a denial.
 
-The **Workflows** button in the header opens the workflow panel (see below).
+The **Documents** button in the header opens the document panel (see Documents below), and the **Workflows** button opens the workflow panel (see Workflows below).
 
 ## Tools
 
@@ -112,13 +112,24 @@ Nova can call these tools when a request needs them:
 - File tools: list, read and write files in the `workspace/` folder
 - Web search (needs `TAVILY_API_KEY`)
 - API request tool
-- Document search: finds passages in the files you added with `python -m rag add` (see Documents below)
+- Document search: finds passages in the files you added, from the web app or with `python -m rag add` (see Documents below)
 
 Tools are checked before they run. Read-only tools run freely, tools that change things need your approval, every call has a timeout, and the web and API tools refuse unsafe URLs.
 
 ## Documents
 
-Nova can answer questions from your own notes. Add `.txt` or `.md` files and Nova searches them by meaning, so your question doesn't need the same words as the file.
+Nova can answer questions from your own notes. Add `.txt` or `.md` files and Nova searches them by meaning, so your question doesn't need the same words as the file. You can add files from the web app or from the terminal. Both use the same code, so they follow the same rules.
+
+### In the web app
+
+Click **Documents** in the header. Choose one or more `.txt` or `.md` files and click **Add**. Each file appears in the **Indexed documents** list with its number of chunks, and **Remove** deletes it from the index. Then ask Nova a question in the chat.
+
+- Each file can be up to 300 KB. Other file types, empty files, and files that are not UTF-8 text are refused with a message next to the file name.
+- Only the file name is kept, not any folder in its path.
+- Adding a file with the same name replaces the old copy.
+- If a file can't be embedded (for example the Gemini API is unreachable), nothing is stored for it.
+
+### In the terminal
 
     python -m rag add notes.md garden.md
     python -m rag list
@@ -128,10 +139,20 @@ Nova can answer questions from your own notes. Add `.txt` or `.md` files and Nov
 
 Then ask Nova a question in the terminal chat or the web app. When the answer is in your files, Nova uses the `search_documents` tool and names the source file.
 
+### Notes
+
 - Adding a file again replaces the old copy. Files up to 300 KB are accepted.
 - Embeddings use `gemini-embedding-001`. Set `NOVA_EMBED_MODEL` to change it. Vectors from different models can't be compared, so after changing the model run `python -m rag clear` and add your files again.
 - Storage follows `DATABASE_URL`: local files in `rag_data/` (ignored by Git) by default, or a table called `rag_chunks` in PostgreSQL.
 - Adding files and searching send text to the Gemini API. Don't add anything you wouldn't send to Google.
+
+### In the web API
+
+The document routes sit behind the same password as the rest of the app.
+
+- `GET /documents` lists the indexed documents with their chunk counts
+- `POST /documents` uploads one file, sent as a form field named `file`. It returns `{"source": "...", "chunks": N}`
+- `DELETE /documents/<name>` removes one document
 
 ## Workflows
 
@@ -162,7 +183,7 @@ Click **Workflows**, type a goal and click **Plan**. Review the plan, then click
 Besides the main chat, Nova has small agents that each do one job with only the tools that job needs:
 
 - `researcher`: web search and the calculator, for current facts and arithmetic
-- `notes`: document search only, so it answers only from files you added with `python -m rag add`
+- `notes`: document search only, so it answers only from files you added to the documents
 - `files`: lists and reads files in `workspace/`. Read-only
 - `nova`: the general chat with every tool. Auto mode uses it for anything the specialists don't cover. It is the only agent that can write files or call APIs, and each of those still asks you first
 
@@ -256,9 +277,9 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), specialized agents with routing in the terminal, a web API and an agent panel in the web page.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page.
 
-Planned next: document upload in the web app, long-term memory, evaluation and logging, Docker, and a FastAPI backend.
+Planned next: long-term memory, evaluation and logging, Docker, and a FastAPI backend.
 
 ## License
 
