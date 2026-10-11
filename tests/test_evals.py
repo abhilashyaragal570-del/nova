@@ -37,12 +37,19 @@ def test_judge_passes_when_none_expected_and_none_used():
 
 def test_question_file_is_valid():
     questions = run_evals.load_questions()
-    assert len(questions) == 8
+    assert len(questions) == 14
     ids = [q["id"] for q in questions]
     assert len(ids) == len(set(ids))
     for q in questions:
         assert q["question"].strip()
         assert isinstance(q["expected_tools"], list)
+
+
+def test_multi_tool_questions_expect_two_tools():
+    multi = [q for q in run_evals.load_questions() if q["id"].startswith("multi-")]
+    assert len(multi) == 3
+    for q in multi:
+        assert len(set(q["expected_tools"])) == 2
 
 
 def test_questions_only_expect_tools_the_runner_registers():

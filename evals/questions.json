@@ -10,6 +10,11 @@
     "expected_tools": ["calculator"]
   },
   {
+    "id": "calc-3",
+    "question": "What is 12345 * 6789 + 98765?",
+    "expected_tools": ["calculator"]
+  },
+  {
     "id": "web-1",
     "question": "Search the web for the latest stable version of Python and tell me what it is.",
     "expected_tools": ["web_search"]
@@ -30,6 +35,21 @@
     "expected_tools": ["read_file"]
   },
   {
+    "id": "multi-1",
+    "question": "List the files in the current folder, then read README.md and tell me its first heading.",
+    "expected_tools": ["list_files", "read_file"]
+  },
+  {
+    "id": "multi-2",
+    "question": "Use the calculator to compute 1234 * 5678, then search the web for the year Python was first released.",
+    "expected_tools": ["calculator", "web_search"]
+  },
+  {
+    "id": "multi-3",
+    "question": "Search the web for the current population of India, then use the calculator to work out 1% of it.",
+    "expected_tools": ["web_search", "calculator"]
+  },
+  {
     "id": "none-1",
     "question": "Say hello in one short sentence.",
     "expected_tools": []
@@ -37,6 +57,16 @@
   {
     "id": "none-2",
     "question": "What is the capital of France?",
+    "expected_tools": []
+  },
+  {
+    "id": "none-3",
+    "question": "Explain in one sentence what a Python list is.",
+    "expected_tools": []
+  },
+  {
+    "id": "none-4",
+    "question": "Write a two-line poem about the sea.",
     "expected_tools": []
   }
 ]
