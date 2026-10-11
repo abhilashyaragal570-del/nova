@@ -26,6 +26,9 @@
   .hbtns { display: flex; gap: 8px; }
   #wftoggle, #doctoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
   #wftoggle:hover, #doctoggle:hover { background: #2c3039; }
+  /* NEW: the Usage link looks like the buttons next to it */
+  #usagelink { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; text-decoration: none; }
+  #usagelink:hover { background: #2c3039; }
   #agentbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid #2a2d35; font-size: 14px; color: #b8b8c0; }
   #agentselect { padding: 7px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: #e8e8ea; font-size: 14px; }
   #agentclear { padding: 7px 12px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
@@ -111,6 +114,7 @@
     <div class="hbtns">
       <button id="doctoggle" type="button">Documents</button>
       <button id="wftoggle" type="button">Workflows</button>
+      <a id="usagelink" href="/usage">Usage</a><!-- NEW -->
     </div>
   </header>
   <div id="agentbar" hidden>
