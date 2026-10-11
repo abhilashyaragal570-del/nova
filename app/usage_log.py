@@ -3,6 +3,8 @@
 Deliberately does not import config.settings, which raises an error when
 GEMINI_API_KEY is missing. Its one optional setting, TOOL_LOG_PATH, is read
 from the environment or from .env, and defaults to logs/tool_usage.jsonl.
+When the log reaches MAX_LOG_BYTES, it is moved to <name>.1 (replacing any
+older copy) and a fresh log is started.
 Logging must never break a chat, so write errors are reported and swallowed.
 """
 import json
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SETTING_NAME = "TOOL_LOG_PATH"
 DEFAULT_LOG_PATH = "logs/tool_usage.jsonl"
+MAX_LOG_BYTES = 1_000_000
 
 
 def _read_env_file(name: str, env_file: Path) -> str | None:
@@ -57,11 +60,23 @@ def build_entry(result: Any, source: str) -> dict:
     }
 
 
-def log_turn(result: Any, source: str = "unknown", path: Path | None = None) -> bool:
+def _rotate_if_needed(path: Path, max_bytes: int) -> None:
+    """Move a full log to <name>.1, replacing any older copy."""
+    if path.is_file() and path.stat().st_size >= max_bytes:
+        os.replace(path, path.with_name(path.name + ".1"))
+
+
+def log_turn(
+    result: Any,
+    source: str = "unknown",
+    path: Path | None = None,
+    max_bytes: int = MAX_LOG_BYTES,
+) -> bool:
     """Append one line for this turn. Returns True if it was written."""
     path = Path(path) if path else get_log_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_if_needed(path, max_bytes)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(build_entry(result, source)) + "\n")
         return True
