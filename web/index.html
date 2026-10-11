@@ -24,8 +24,8 @@
   header { padding: 12px 16px; border-bottom: 1px solid #2a2d35; display: flex; align-items: center; justify-content: space-between; }
   header h1 { margin: 0; font-size: 18px; }
   .hbtns { display: flex; gap: 8px; }
-  #wftoggle, #doctoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
-  #wftoggle:hover, #doctoggle:hover { background: #2c3039; }
+  #wftoggle, #doctoggle, #memtoggle { padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; cursor: pointer; }
+  #wftoggle:hover, #doctoggle:hover, #memtoggle:hover { background: #2c3039; }
   /* NEW: the Usage link looks like the buttons next to it */
   #usagelink { display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid #3a3e48; border-radius: 6px; background: #22252c; color: #e8e8ea; font-size: 14px; text-decoration: none; }
   #usagelink:hover { background: #2c3039; }
@@ -49,6 +49,15 @@
   .docitem { display: flex; gap: 10px; align-items: center; padding: 3px 0; font-size: 13px; }
   .docitem .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .docitem .c { min-width: 80px; color: #8a8d96; }
+  #mempanel { display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35; max-height: 45vh; overflow-y: auto; font-size: 14px; }
+  #mempanel.open { display: block; }
+  #memnote { margin-bottom: 8px; font-size: 13px; color: #7d808a; }
+  #memfact { flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 6px; border: 1px solid #3a3e48; background: #1d2027; color: inherit; font-size: 14px; }
+  #memmsg { color: #7bd88f; margin-bottom: 6px; }
+  #memerr { color: #ff7b7b; margin-bottom: 6px; overflow-wrap: anywhere; }
+  #memmsg:empty, #memerr:empty { display: none; }
+  .memitem { display: flex; gap: 10px; align-items: center; padding: 3px 0; font-size: 13px; }
+  .memitem .t { flex: 1; overflow-wrap: anywhere; }
   #wfpanel { display: none; padding: 12px 16px; border-bottom: 1px solid #2a2d35; max-height: 45vh; overflow-y: auto; font-size: 14px; }
   #wfpanel.open { display: block; }
   .wfrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -112,6 +121,7 @@
   <header>
     <h1>Nova</h1>
     <div class="hbtns">
+      <button id="memtoggle" type="button">Memory</button>
       <button id="doctoggle" type="button">Documents</button>
       <button id="wftoggle" type="button">Workflows</button>
       <a id="usagelink" href="/usage">Usage</a><!-- NEW -->
@@ -130,6 +140,17 @@
     <input id="prompt" type="text" autocomplete="off">
     <button id="set" type="button">Set</button>
     <span id="status"></span>
+  </div>
+  <div id="mempanel">
+    <div id="memnote">Facts Nova remembers in every chat. Nova can also save or forget a fact when you ask it to (it asks for approval first); here you change them directly. Saved facts are sent to the Gemini API with every chat, so don't save anything you wouldn't send to Google.</div>
+    <div class="wfrow">
+      <input id="memfact" type="text" placeholder="Add a fact, e.g. Prefers short answers" maxlength="200" autocomplete="off">
+      <button id="memaddbtn" class="wfbtn" type="button">Add</button>
+    </div>
+    <div id="memmsg"></div>
+    <div id="memerr"></div>
+    <div class="wfhead">Saved facts</div>
+    <div id="memlist"></div>
   </div>
   <div id="docpanel">
     <div id="docnote">Add .txt or .md files (up to 300 KB each) and Nova can answer from them. Adding a file sends its text to the Gemini API, so don't add anything you wouldn't send to Google.</div>
@@ -537,6 +558,116 @@
   }
 
   setInterval(pollApprovals, 1000);
+
+  // ---- Memory: see, add and delete the facts Nova remembers ----
+  const memToggle = document.getElementById("memtoggle");
+  const memPanel = document.getElementById("mempanel");
+  const memFact = document.getElementById("memfact");
+  const memAddBtn = document.getElementById("memaddbtn");
+  const memMsg = document.getElementById("memmsg");
+  const memErr = document.getElementById("memerr");
+  const memList = document.getElementById("memlist");
+  let memOpen = false;
+
+  async function readError(res, fallback) {
+    try {
+      const j = await res.json();
+      if (j.error) return j.error;
+    } catch (err) {}
+    return fallback;
+  }
+
+  async function loadMemory() {
+    memList.innerHTML = "";
+    let items = [];
+    try {
+      const res = await fetch("/memory");
+      if (!res.ok) {
+        memList.textContent = await readError(res, "Could not load saved facts.");
+        return;
+      }
+      items = await res.json();
+    } catch (err) {
+      memList.textContent = "Could not load saved facts.";
+      return;
+    }
+    if (!items.length) {
+      memList.textContent = "Nothing saved yet. Add a fact above, or ask Nova to remember something.";
+      return;
+    }
+    for (const f of items) {
+      const row = document.createElement("div");
+      row.className = "memitem";
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = f.text;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "wfbtn no";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => removeMemory(f.id, f.text));
+      row.append(t, del);
+      memList.appendChild(row);
+    }
+  }
+
+  async function addMemory() {
+    const text = memFact.value.trim();
+    memMsg.textContent = "";
+    memErr.textContent = "";
+    if (!text) {
+      memErr.textContent = "Type a fact first.";
+      return;
+    }
+    memAddBtn.disabled = true;
+    try {
+      const res = await fetch("/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fact: text }),
+      });
+      if (res.ok) {
+        memFact.value = "";
+        memMsg.textContent = "Saved.";
+      } else {
+        memErr.textContent = await readError(res, "Could not save the fact.");
+      }
+    } catch (err) {
+      memErr.textContent = "Could not reach the server.";
+    }
+    memAddBtn.disabled = false;
+    loadMemory();
+  }
+
+  async function removeMemory(id, text) {
+    if (!confirm("Forget this fact?\n\n" + text)) return;
+    memMsg.textContent = "";
+    memErr.textContent = "";
+    try {
+      const res = await fetch("/memory/" + encodeURIComponent(id), { method: "DELETE" });
+      if (res.ok) {
+        memMsg.textContent = "Forgotten.";
+      } else {
+        memErr.textContent = await readError(res, "Could not delete it.");
+      }
+    } catch (err) {
+      memErr.textContent = "Could not reach the server.";
+    }
+    loadMemory();
+  }
+
+  memToggle.addEventListener("click", () => {
+    memOpen = !memOpen;
+    memPanel.classList.toggle("open", memOpen);
+    if (memOpen) loadMemory();
+  });
+  memAddBtn.addEventListener("click", addMemory);
+  memFact.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addMemory();
+    }
+  });
 
   // ---- Documents: add, list and remove the files Nova can search ----
   const docToggle = document.getElementById("doctoggle");

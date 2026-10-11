@@ -317,6 +317,38 @@ def answer_approval(approval_id):
     return jsonify({"ok": True})
 
 
+# Long-term memory, managed by hand from the browser. These routes do not need
+# an Approve card: the card exists so the model cannot change memory on its
+# own, and here the person is clicking the button themselves. They use the
+# same fact_store as the remember / forget tools, and sit behind the password.
+@app.get("/memory")
+def list_memory():
+    return jsonify(fact_store.list())
+
+
+@app.post("/memory")
+def add_memory():
+    data = request.get_json(silent=True) or {}
+    try:
+        fact = fact_store.add(data.get("fact"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError:
+        return jsonify({"error": "Could not save the fact"}), 503
+    return jsonify(fact), 201
+
+
+@app.delete("/memory/<fact_id>")
+def delete_memory(fact_id):
+    try:
+        removed = fact_store.remove(fact_id)
+    except OSError:
+        return jsonify({"error": "Could not update memory"}), 503
+    if not removed:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({"ok": True})
+
+
 @app.post("/workflows")
 def start_workflow():
     data = request.get_json(silent=True) or {}

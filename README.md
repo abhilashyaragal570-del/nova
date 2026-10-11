@@ -41,6 +41,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Built-in tools: calculator, file tools, web search, an API request tool, document search and long-term memory
 - Document search: add your own `.txt` and `.md` files from the web app or with `python -m rag add`, and Nova answers from them and names the source file
 - Long-term memory: ask Nova to remember a fact and it knows it in every later chat, in the terminal and in the web app. Saving or forgetting a fact asks for your approval first
+- Memory panel: a **Memory** button in the web app lists the saved facts, and lets you add a fact or delete one directly
 - Specialized agents: a researcher, a notes agent and a read-only file agent, each with only the tools it needs, plus an auto mode that routes each question to the right one
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
@@ -104,7 +105,7 @@ Open http://127.0.0.1:5000 in your browser. The browser asks for a login. Use an
 
 When Nova wants to run a tool that changes things, such as writing a file or calling an API, a card appears above the message box. Nothing runs until you click **Approve**, and **Deny** cancels it. If you don't answer within 60 seconds, it counts as a denial.
 
-The **Documents** button in the header opens the document panel (see Documents below), and the **Workflows** button opens the workflow panel (see Workflows below).
+The **Memory** button in the header opens the memory panel (see Long-term memory below), the **Documents** button opens the document panel (see Documents below), and the **Workflows** button opens the workflow panel (see Workflows below).
 
 ## Tools
 
@@ -136,6 +137,24 @@ Saving and forgetting a fact are tools that change things, so each one asks for 
 - Saved facts are sent to the Gemini API with every chat. Don't save anything you wouldn't send to Google.
 - If the file is damaged, Nova moves it aside to `facts.json.bad` and starts with empty memory instead of failing.
 - The facts file is a local file, not part of PostgreSQL. On a host with a disk that is wiped on restart (such as Render's free plan), saved facts are lost on restart.
+
+### In the web app
+
+Click **Memory** in the header. The panel shows every saved fact with a **Delete** button. To add a fact, type it in the box and press Enter or click **Add**. A message above the list says "Saved." or "Forgotten." when it worked, or shows the reason when it didn't.
+
+- Changes made in the panel happen straight away. They don't ask for approval, because you are making them yourself. Deleting a fact asks you to confirm in a pop-up.
+- The panel follows the same rules as Nova: at most 200 characters per fact, at most 50 facts, and a repeated fact is saved only once.
+- Fact text is shown as plain text, never as HTML.
+
+### In the web API
+
+The memory routes sit behind the same password as the rest of the app.
+
+- `GET /memory` lists the saved facts, each with an `id` and its `text`
+- `POST /memory` with `{"fact": "..."}` saves a fact
+- `DELETE /memory/<id>` forgets one fact
+
+A request that can't be done returns `{"error": "..."}` with the reason.
 
 ## Documents
 
@@ -342,7 +361,7 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory, and a Dockerfile (written, but not yet built or run).
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, and a Dockerfile (written, but not yet built or run).
 
 Planned next: a FastAPI backend.
 
