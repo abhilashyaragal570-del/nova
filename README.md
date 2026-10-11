@@ -46,6 +46,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
 - Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
+- A `Dockerfile` to run the web app in a container (see Docker below)
 - Token usage shown after every reply
 - Terminal commands: `/clear`, `/history`, `/model`, `/system` and `/agent`
 - API keys, model name and password kept in a `.env` file
@@ -284,9 +285,31 @@ Notes for the free plan:
 - A restart also stops a workflow that is running. Its progress is saved, so you can resume it from the panel.
 - Free Render databases expire after 30 days. To renew: create a new free database, replace `DATABASE_URL` in **Environment** with its new Internal Database URL, then delete the old database. Chats and workflow runs saved in the old one are not carried over.
 
+## Docker
+
+The repo has a `Dockerfile` that runs the web app with gunicorn, one worker, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
+
+**Status:** these files were written on a machine without Docker, so the image has not been built or run yet. Treat the first `docker build` as a test and report anything that fails.
+
+Build the image from the repo folder:
+
+        docker build -t nova .
+
+Run it. Your settings come from your `.env` file at run time and are never copied into the image:
+
+        docker run --rm -p 8000:8000 --env-file .env -v nova_conversations:/app/conversations -v nova_workflows:/app/workflow_data -v nova_documents:/app/rag_data -v nova_memory:/app/memory_data -v nova_logs:/app/logs -v nova_workspace:/app/workspace nova
+
+Then open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`.
+
+- `--env-file` takes each line as it is, so don't put quotes around values in `.env` when you use it.
+- Each `-v name:/app/folder` option is a named Docker volume. It keeps that folder's files when the container is removed and started again. Without it, everything the container wrote is lost when it stops.
+- The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log and the `workspace/` folder. The main chat (`history.json`) and the edited system prompt (`personality.json`) are not covered, so they are lost when the container is removed. Set `DATABASE_URL` to keep chats in PostgreSQL instead.
+- The server listens on port 8000 inside the container, or on the `PORT` variable if the host sets one.
+- Keep it to one worker. A running workflow lives in the server's memory.
+
 ## Notes
 
-`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub.
+`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub. The same paths are listed in `.dockerignore`, so they are never copied into a Docker image either.
 
 ## Tests
 
@@ -317,9 +340,9 @@ This sends the questions in `evals/questions.json` to Gemini (real API calls, ab
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, and long-term memory.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory, and a Dockerfile (written, but not yet built or run).
 
-Planned next: Docker and a FastAPI backend.
+Planned next: a FastAPI backend.
 
 ## License
 
