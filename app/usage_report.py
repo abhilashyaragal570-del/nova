@@ -3,6 +3,11 @@
 Deliberately does not import config.settings, so it works without a
 GEMINI_API_KEY. Lines that cannot be read are counted and skipped.
 
+When the log is rotated (see app/usage_log.py), the full file is kept as
+<name>.1. The report reads that older file first and then the current one, so
+the totals do not drop back to zero after a rotation. Only one older file
+exists, so the report covers at most the last two files.
+
 Usage: python -m app.usage_report
 """
 import json
@@ -34,6 +39,23 @@ def read_entries(path: Path) -> tuple[list, int]:
         else:
             skipped += 1
     return entries, skipped
+
+
+def old_log_path(path: Path) -> Path:
+    """Where usage_log.py moves a full log: <name>.1 next to the current file."""
+    path = Path(path)
+    return path.with_name(path.name + ".1")
+
+
+def read_all_entries(path: Path) -> tuple[list, int]:
+    """Read the older rotated file first, then the current one.
+
+    Returns (entries, skipped_line_count) over both files. A file that does
+    not exist counts as empty.
+    """
+    old_entries, old_skipped = read_entries(old_log_path(path))
+    entries, skipped = read_entries(path)
+    return old_entries + entries, old_skipped + skipped
 
 
 def summarize(entries: list) -> dict:
@@ -103,11 +125,14 @@ def format_report(summary: dict, skipped: int = 0) -> str:
 
 def main() -> int:
     path = get_log_path()
-    if not path.exists():
+    old = old_log_path(path)
+    if not path.exists() and not old.exists():
         print(f"No usage log found at {path}. Chat with Nova first, then run this again.")
         return 1
-    entries, skipped = read_entries(path)
+    entries, skipped = read_all_entries(path)
     print(f"Tool usage report ({path})\n")
+    if old.exists():
+        print(f"(includes the older log {old.name})\n")
     print(format_report(summarize(entries), skipped))
     return 0
 

@@ -6,10 +6,15 @@ are allowed, except that a question expecting no tools must use none. Only
 read-only tools are registered, so nothing ever asks for approval. Results are
 printed and saved to evals/last_results.json.
 
+If the API answers 429 (rate limit), the runner waits and tries the same
+question again, up to MAX_RATE_LIMIT_RETRIES times. The wait grows each time
+(60 seconds, then 120). Any other API error fails the question straight away.
+
 Usage: python -m evals.run_evals
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 from google.genai import errors, types
@@ -26,6 +31,9 @@ from tools.web_search import WebSearchTool
 EVALS_DIR = Path(__file__).resolve().parent
 QUESTIONS_FILE = EVALS_DIR / "questions.json"
 RESULTS_FILE = EVALS_DIR / "last_results.json"
+
+MAX_RATE_LIMIT_RETRIES = 2
+RATE_LIMIT_WAIT_SECONDS = 60.0
 
 
 def build_registry() -> ToolRegistry:
@@ -52,30 +60,54 @@ def judge(expected: list, used: list) -> bool:
     return set(expected) <= set(used)
 
 
-def run_question(item: dict, registry: ToolRegistry) -> dict:
+def run_question(
+    item: dict,
+    registry: ToolRegistry,
+    retries: int = MAX_RATE_LIMIT_RETRIES,
+    wait_seconds: float = RATE_LIMIT_WAIT_SECONDS,
+    sleep=time.sleep,
+) -> dict:
     gemini_tool = to_gemini_tool(registry)
-    chat = client.chats.create(
-        model=MODEL,
-        config=types.GenerateContentConfig(
-            system_instruction=settings.NOVA_SYSTEM_PROMPT,
-            tools=[gemini_tool] if gemini_tool else None,
-        ),
-    )
     entry = {
         "id": item["id"],
         "question": item["question"],
         "expected": item["expected_tools"],
     }
-    try:
-        result = run_turn(chat, item["question"], registry)
-    except errors.APIError as e:
-        entry.update(used=[], passed=False, error=f"API error {e.code}", tokens=0)
-        return entry
+    attempt = 0
+    while True:
+        # A fresh chat for every attempt, so a failed turn leaves no history.
+        chat = client.chats.create(
+            model=MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=settings.NOVA_SYSTEM_PROMPT,
+                tools=[gemini_tool] if gemini_tool else None,
+            ),
+        )
+        try:
+            result = run_turn(chat, item["question"], registry)
+            break
+        except errors.APIError as e:
+            if e.code == 429 and attempt < retries:
+                attempt += 1
+                wait = wait_seconds * attempt
+                print(
+                    f"      rate limited, waiting {wait:g}s "
+                    f"(retry {attempt} of {retries})",
+                    flush=True,
+                )
+                sleep(wait)
+                continue
+            entry.update(used=[], passed=False, error=f"API error {e.code}", tokens=0)
+            if attempt:
+                entry["rate_limit_retries"] = attempt
+            return entry
     entry.update(
         used=result.tools_used,
         passed=judge(item["expected_tools"], result.tools_used),
         tokens=result.total_tokens,
     )
+    if attempt:
+        entry["rate_limit_retries"] = attempt
     return entry
 
 

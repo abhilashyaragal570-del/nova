@@ -324,7 +324,7 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 Every chat turn (terminal chat, web chat, agents and auto mode) appends one line to `logs/tool_usage.jsonl`. Each line records the time, the source, which tools ran, the tool call count and token usage. It never records your messages or Nova's replies.
 
-When the log reaches 1 MB, it is moved to `tool_usage.jsonl.1` and a fresh log is started. Only one old file is kept, so the log never takes much more than 2 MB. The usage report reads only the current file, so its totals start again after a rotation.
+When the log reaches 1 MB, it is moved to `tool_usage.jsonl.1` and a fresh log is started. Only one old file is kept, so the log never takes much more than 2 MB. The usage report reads the older file as well as the current one, so its totals don't drop to zero after a rotation. It covers at most the last two files, so once the log has been rotated again, the oldest turns are no longer counted.
 
 Set `TOOL_LOG_PATH` in the environment or `.env` to write the log somewhere else. The `logs/` folder is ignored by git.
 
@@ -337,6 +337,8 @@ python -m evals.run_evals
 ```
 
 This sends the questions in `evals/questions.json` to Gemini (real API calls, about 6,000 tokens each) using only read-only tools. A question passes when every expected tool was used. A question that expects no tools passes only if none were used. Results are saved to `evals/last_results.json`.
+
+If the API answers with a rate limit error (429), the runner waits 60 seconds and tries that question again, then waits 120 seconds for a second retry, and marks the question failed if it still gets a 429. Other errors fail the question straight away. A line such as `rate limited, waiting 60s (retry 1 of 2)` is printed while it waits.
 
 ## Roadmap
 
