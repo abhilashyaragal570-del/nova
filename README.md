@@ -283,4 +283,21 @@ Planned next: long-term memory, evaluation and logging, Docker, and a FastAPI ba
 
 ## License
 
+
+## Tool usage log and evaluation
+
+Every chat turn (terminal chat, web chat, agents and auto mode) appends one line to `logs/tool_usage.jsonl`. Each line records the time, the source, which tools ran, the tool call count and token usage. It never records your messages or Nova's replies.
+
+Set `TOOL_LOG_PATH` in the environment or `.env` to write the log somewhere else. The `logs/` folder is ignored by git.
+
+To check that Nova picks the right tools, run:
+
+```
+python -m evals.run_evals
+```
+
+This sends the questions in `evals/questions.json` to Gemini (real API calls, about 6,000 tokens each) using only read-only tools. A question passes when every expected tool was used. A question that expects no tools passes only if none were used. Results are saved to `evals/last_results.json`.
+
+## License
+
 Apache License 2.0. See [LICENSE](LICENSE).

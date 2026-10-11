@@ -1,0 +1,42 @@
+[
+  {
+    "id": "calc-1",
+    "question": "What is 458 * 923?",
+    "expected_tools": ["calculator"]
+  },
+  {
+    "id": "calc-2",
+    "question": "Use the calculator to work out 17.5% of 2480.",
+    "expected_tools": ["calculator"]
+  },
+  {
+    "id": "web-1",
+    "question": "Search the web for the latest stable version of Python and tell me what it is.",
+    "expected_tools": ["web_search"]
+  },
+  {
+    "id": "web-2",
+    "question": "Search the web for today's top technology news headline.",
+    "expected_tools": ["web_search"]
+  },
+  {
+    "id": "files-1",
+    "question": "List the files in the current folder.",
+    "expected_tools": ["list_files"]
+  },
+  {
+    "id": "files-2",
+    "question": "Read the file README.md and tell me what the project is about in one sentence.",
+    "expected_tools": ["read_file"]
+  },
+  {
+    "id": "none-1",
+    "question": "Say hello in one short sentence.",
+    "expected_tools": []
+  },
+  {
+    "id": "none-2",
+    "question": "What is the capital of France?",
+    "expected_tools": []
+  }
+]

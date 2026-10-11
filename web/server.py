@@ -12,6 +12,7 @@ from app.chat import new_chat, SYSTEM_PROMPT
 from app.llm import ask as model
 from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.tool_loop import run_turn
+from app.usage_log import log_turn
 from memory.conversation_store import MAIN_ID, NEW_TITLE
 from memory.store_factory import create_store
 from rag.embedder import EmbedError, GeminiEmbedder
@@ -210,6 +211,7 @@ def chat():
                 outcome["result"] = run_turn(
                     chat_session, user_input, web_registry, on_text=chunks.put
                 )
+                log_turn(outcome["result"], source="web")
             except errors.APIError as e:
                 outcome["error"] = e
             finally:

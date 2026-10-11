@@ -16,6 +16,7 @@ from google.genai import errors
 from agents.definitions import AGENTS, AgentSpec
 from agents.router import route
 from app.tool_loop import run_turn
+from app.usage_log import log_turn
 
 DEFAULT_AGENT = "nova"
 FOLLOWUP_MAX_WORDS = 4
@@ -144,6 +145,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo, classify=None) -
             write(f"\n[{name} couldn't reply: error {e.code}. Try again in a moment.]\n\n")
             continue
         write("\n")
+        log_turn(result, source=f"auto:{name}")
         if result.tool_calls:
             write(f"[used {result.tool_calls} tool call(s)]\n")
         if result.hit_round_limit:

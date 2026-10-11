@@ -4,7 +4,7 @@ Takes any object with send_message_stream(), so it can be tested with a
 fake chat and no real API calls.
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from google.genai import types
@@ -25,6 +25,7 @@ class TurnResult:
     total_tokens: int = 0
     tool_calls: int = 0
     hit_round_limit: bool = False
+    tools_used: list = field(default_factory=list)
 
 
 def _response_part(name: str, response: dict) -> types.Part:
@@ -100,6 +101,7 @@ def run_turn(
         else:
             rounds += 1
             result.tool_calls += len(calls)
+            result.tools_used.extend(c.name for c in calls)
             message = [_run_call(registry, c) for c in calls]
 
     return result

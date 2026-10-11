@@ -2,6 +2,7 @@ from google.genai import errors, types
 from app.confirm import confirm_in_terminal
 from app.llm import client, MODEL
 from app.tool_loop import run_turn
+from app.usage_log import log_turn
 from config import settings
 from memory.conversation_store import MAIN_ID
 from memory.store_factory import create_store
@@ -116,6 +117,7 @@ def main():
             print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
             continue
         print()
+        log_turn(result, source="terminal")
         if result.tool_calls:
             print(f"[used {result.tool_calls} tool call(s)]")
         if result.hit_round_limit:

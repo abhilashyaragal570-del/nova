@@ -17,6 +17,7 @@ from agents.definitions import AgentError, get_agent, list_agents
 from agents.factory import new_agent_chat
 from agents.history import clear_messages, load_messages, save_messages, to_contents
 from app.tool_loop import run_turn
+from app.usage_log import log_turn
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,7 @@ def register_agent_routes(
                     outcome["result"] = run_turn(
                         chat_session, user_input, registry, on_text=chunks.put
                     )
+                    log_turn(outcome["result"], source=f"web-agent:{spec.name}")
                 except errors.APIError as e:
                     outcome["error"] = e
                 finally:
