@@ -28,6 +28,7 @@ from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
 from web.agents_api import register_agent_routes
 from web.approvals import ApprovalBroker
+from web.usage_api import register_usage_routes  # NEW
 from web.workflow_runs import Busy, WorkflowManager
 from workflows.executor import WorkflowExecutor
 from workflows.gemini_planner import make_planner
@@ -60,6 +61,9 @@ for _tool in (
 # Agents get a restricted copy of web_registry with the same policy, so any
 # tool that needs approval shows the same Approve / Deny card as chat.
 register_agent_routes(app, web_registry, store, llm_client, MODEL_NAME)
+
+# The usage report page and its JSON data.
+register_usage_routes(app, WEB_DIR)  # NEW
 
 # Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
 WORKFLOW_DEADLINE_SECONDS = 600.0

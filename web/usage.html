@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova usage</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fff; }
+  @media (prefers-color-scheme: dark) { body { color: #ddd; background: #181818; } th { border-color: #444; } td { border-color: #333; } }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #ddd; }
+  th { border-bottom: 2px solid #bbb; }
+  td.num, th.num { text-align: right; }
+  .stats { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+  .stat b { display: block; font-size: 1.4rem; }
+  .muted { color: #888; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>Nova tool usage</h1>
+<p class="muted"><a href="/">Back to chat</a> &middot; <a href="#" id="refresh">Refresh</a></p>
+<div class="stats" id="stats"></div>
+<p class="muted" id="skipped"></p>
+<h2>Tools used</h2>
+<table id="tools"></table>
+<h2>By source</h2>
+<table id="sources"></table>
+<script>
+function cell(tag, text, cls) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  if (cls) el.className = cls;
+  return el;
+}
+function fillTable(id, headers, rows) {
+  const table = document.getElementById(id);
+  table.replaceChildren();
+  const head = document.createElement("tr");
+  headers.forEach((h, i) => head.appendChild(cell("th", h, i > 0 ? "num" : "")));
+  table.appendChild(head);
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = cell("td", "(none)", "muted");
+    td.colSpan = headers.length;
+    tr.appendChild(td);
+    table.appendChild(tr);
+    return;
+  }
+  rows.forEach(row => {
+    const tr = document.createElement("tr");
+    row.forEach((v, i) => tr.appendChild(cell("td", v, i > 0 ? "num" : "")));
+    table.appendChild(tr);
+  });
+}
+function stat(label, value) {
+  const box = document.createElement("div");
+  box.className = "stat";
+  const b = document.createElement("b");
+  b.textContent = value;
+  box.appendChild(b);
+  box.appendChild(document.createTextNode(label));
+  return box;
+}
+async function load() {
+  const res = await fetch("/api/usage");
+  if (!res.ok) {
+    document.getElementById("stats").textContent = "Could not load usage (error " + res.status + ").";
+    return;
+  }
+  const d = await res.json();
+  const stats = document.getElementById("stats");
+  stats.replaceChildren(
+    stat("turns", d.turns.toLocaleString()),
+    stat("total tokens", d.total_tokens.toLocaleString()),
+    stat("turns with no tools", d.no_tool_turns.toLocaleString()),
+    stat("hit the round limit", d.limit_hits.toLocaleString())
+  );
+  document.getElementById("skipped").textContent =
+    d.skipped ? d.skipped + " unreadable log line(s) skipped." : "";
+  const tools = Object.entries(d.tools)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => [name, count.toLocaleString()]);
+  fillTable("tools", ["Tool", "Calls"], tools);
+  const sources = Object.entries(d.sources)
+    .sort((a, b) => b[1].tokens - a[1].tokens || a[0].localeCompare(b[0]))
+    .map(([name, s]) => [name, s.turns.toLocaleString(), s.tokens.toLocaleString()]);
+  fillTable("sources", ["Source", "Turns", "Tokens"], sources);
+}
+document.getElementById("refresh").addEventListener("click", e => { e.preventDefault(); load(); });
+load();
+</script>
+</body>
+</html>
