@@ -308,7 +308,7 @@ Notes for the free plan:
 
 The repo has a `Dockerfile` that runs the web app with gunicorn, one worker, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** these files were written on a machine without Docker, so the image has not been built or run yet. Treat the first `docker build` as a test and report anything that fails.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2). Login, chat and the Memory panel worked in the container, using local files for storage. It has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
 
 Build the image from the repo folder:
 
@@ -321,6 +321,7 @@ Run it. Your settings come from your `.env` file at run time and are never copie
 Then open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`.
 
 - `--env-file` takes each line as it is, so don't put quotes around values in `.env` when you use it.
+- `localhost` in `DATABASE_URL` does not work inside a container, because there it means the container itself. The app then stops at start-up with a "Connection refused" error. For a PostgreSQL database on your own computer, use `host.docker.internal` instead of `localhost`. To use local files instead, add `-e DATABASE_URL=` to the `docker run` command, after `--env-file .env`. It overrides the value in `.env` for that run only.
 - Each `-v name:/app/folder` option is a named Docker volume. It keeps that folder's files when the container is removed and started again. Without it, everything the container wrote is lost when it stops.
 - The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log and the `workspace/` folder. The main chat (`history.json`) and the edited system prompt (`personality.json`) are not covered, so they are lost when the container is removed. Set `DATABASE_URL` to keep chats in PostgreSQL instead.
 - The server listens on port 8000 inside the container, or on the `PORT` variable if the host sets one.
@@ -361,7 +362,7 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, and a Dockerfile (written, but not yet built or run).
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, and a Dockerfile (built and run on Windows).
 
 Planned next: a FastAPI backend.
 
