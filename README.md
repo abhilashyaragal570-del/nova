@@ -4,6 +4,14 @@
 
 Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, and optional PostgreSQL storage.
 
+## Live demo
+
+Live app: https://nova-wwn8.onrender.com
+
+The app is password-protected. The demo password is not published here, so ask me for it. The API docs are at https://nova-wwn8.onrender.com/docs and use the same login.
+
+It runs on Render's free plan, so the first request after a quiet period can take up to a minute while the service wakes up. Documents and memory facts you add are wiped when the service restarts. See Demo walkthrough below for a five-minute tour.
+
 ## Screenshots
 
 Nova answering a question from my own notes and naming the source file (`garden.md`):
@@ -51,6 +59,19 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Token usage shown after every reply
 - Terminal commands: `/clear`, `/history`, `/model`, `/system` and `/agent`
 - API keys, model name and password kept in a `.env` file
+
+## Demo walkthrough
+
+A five-minute tour of the live app, in this order:
+
+1. **Login and chat.** The browser asks for a login. Use any username and the demo password. Ask a simple question and watch the reply stream in, with the token count after it.
+2. **Documents.** Click **Documents**, add a `.md` or `.txt` file, then ask a question about it. Nova answers from the file and names it.
+3. **Approval card.** Ask Nova to write a file. An Approve / Deny card appears, and nothing is written until you click **Approve**.
+4. **Memory.** Say "remember that I prefer short answers", approve it, then open the **Memory** panel to see the saved fact.
+5. **Workflow.** Click **Workflows**, type a goal, click **Plan**, review the plan, then **Run plan** and watch each step.
+6. **Usage and API docs.** Click **Usage** for the tool usage report. Then open `/docs` to see every API route, behind the same password. **Try it out** works once you are logged in.
+
+Under the hood: one FastAPI app with a single password check on every route, one policy layer for every tool call, and automated tests that run on every push.
 
 ## Setup
 
@@ -372,7 +393,7 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), a FastAPI backend, and password-protected API docs.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), a FastAPI backend, password-protected API docs, and a live demo on Render.
 
 Planned next: rebuild and test the Docker image with uvicorn.
 
