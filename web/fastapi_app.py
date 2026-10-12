@@ -1,8 +1,9 @@
 """Nova's FastAPI app.
 
-The three /memory routes are FastAPI. Every other route is still the Flask app
-in web/server.py, mounted at the end so the FastAPI routes are matched first.
-Flask keeps doing its own password check for the routes it serves.
+The /memory and /documents routes are FastAPI. Every other route is still the
+Flask app in web/server.py, mounted at the end so the FastAPI routes are
+matched first. Flask keeps doing its own password check for the routes it
+serves.
 
 FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
 Run it with: uvicorn web.fastapi_app:app --port 8001
@@ -12,15 +13,23 @@ import os
 from typing import Annotated
 
 from a2wsgi import WSGIMiddleware
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 
 from app.chat import fact_store
-from web.server import app as flask_app
+from rag.embedder import EmbedError
+from rag.index import RagIndexError
+from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
+from web import server as flask_server
+
+# Room for one file plus the form overhead, the same limit Flask used.
+MAX_REQUEST_BYTES = MAX_FILE_BYTES + 100_000
 
 security = HTTPBasic(auto_error=False)
 
@@ -59,6 +68,17 @@ class Ok(BaseModel):
     ok: bool
 
 
+class Document(BaseModel):
+    source: str
+    chunks: int
+    model: str | None = None
+
+
+class Uploaded(BaseModel):
+    source: str
+    chunks: int
+
+
 # Errors keep the {"error": "..."} shape that web/index.html reads.
 @app.exception_handler(HTTPException)
 async def http_error(request, exc: HTTPException):
@@ -69,9 +89,12 @@ async def http_error(request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def bad_request(request, exc: RequestValidationError):
-    # Only /memory has a request body in FastAPI so far. Flask answered a
-    # missing or non-text fact with this same message and a 400.
+    # Only the /memory body can fail validation. Flask answered a missing or
+    # non-text fact with this same message and a 400.
     return JSONResponse({"error": "fact must be text"}, status_code=400)
+
+
+# ---------- memory ----------
 
 
 @app.get("/memory", response_model=list[Fact])
@@ -100,5 +123,110 @@ def delete_memory(fact_id: str):
     return {"ok": True}
 
 
+# ---------- documents ----------
+# These call get_document_index() and get_embedder() on web.server, so there is
+# still one index, and tests can replace both functions with fakes.
+
+
+@app.get("/documents", response_model=list[Document])
+def list_documents():
+    try:
+        return flask_server.get_document_index().list_documents()
+    except RagIndexError as e:
+        raise HTTPException(503, str(e))
+
+
+async def _read_limited_body(request: Request) -> bytes:
+    """Read the request body, refusing it as soon as it passes the limit."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_REQUEST_BYTES:
+            raise HTTPException(
+                413,
+                f"That upload is too large (max {MAX_FILE_BYTES // 1000} KB per file)",
+            )
+    return bytes(body)
+
+
+def _replay(body: bytes):
+    """A receive() that hands the already-read body to a new Request."""
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    return receive
+
+
+def _store_upload(filename: str, data: bytes) -> dict:
+    # Blocking work (embedding calls Gemini), so it runs in a thread.
+    return add_upload(
+        filename, data, flask_server.get_document_index(), flask_server.get_embedder()
+    )
+
+
+# The route reads the request itself, so /docs needs this description of the form.
+UPLOAD_FORM_DOCS = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"file": {"type": "string", "format": "binary"}},
+                    "required": ["file"],
+                }
+            }
+        },
+    }
+}
+
+
+@app.post(
+    "/documents",
+    response_model=Uploaded,
+    status_code=201,
+    openapi_extra=UPLOAD_FORM_DOCS,
+)
+async def upload_document(request: Request):
+    # The password check has already run (it is a dependency of the whole
+    # app), and the body is size-limited before anything parses it.
+    body = await _read_limited_body(request)
+    form = await Request(request.scope, _replay(body)).form()
+    try:
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile) or not upload.filename:
+            raise HTTPException(400, "Choose a file to upload")
+        filename = upload.filename
+        # Read one byte past the limit so a too-big file is noticed, not truncated.
+        data = await upload.read(MAX_FILE_BYTES + 1)
+    finally:
+        await form.close()
+    try:
+        return await run_in_threadpool(_store_upload, filename, data)
+    except IngestError as e:
+        raise HTTPException(400, str(e))
+    except EmbedError as e:
+        raise HTTPException(502, f"Could not read the file for search: {e}")
+    except RagIndexError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.delete("/documents/{source}", response_model=Ok)
+def remove_document(source: str):
+    try:
+        removed = flask_server.get_document_index().remove_document(source)
+    except RagIndexError as e:
+        raise HTTPException(503, str(e))
+    if not removed:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
 # Must stay last: a mount at "/" matches every path that no route above took.
-app.mount("/", WSGIMiddleware(flask_app))
+app.mount("/", WSGIMiddleware(flask_server.app))
