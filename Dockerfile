@@ -1,4 +1,4 @@
-# Nova web app. Untested until Docker is installed: see the README.
+# Nova web app. Built and run with uvicorn: see the README for the status.
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 

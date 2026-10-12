@@ -339,7 +339,7 @@ Notes for the free plan:
 
 The repo has a `Dockerfile` that runs the web app with uvicorn, one process, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** the image was built and run on Windows with Docker Desktop (WSL 2) when the app started with gunicorn. Login, chat and the Memory panel worked in the container, using local files for storage. The start command has since changed to uvicorn, and the image has not been rebuilt and tested with it yet. It also has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
 
 Build the image from the repo folder:
 
@@ -393,9 +393,9 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), a FastAPI backend, password-protected API docs, and a live demo on Render.
 
-Planned next: rebuild and test the Docker image with uvicorn.
+Planned next: test the Docker image with a PostgreSQL database from inside a container.
 
 ## License
 
