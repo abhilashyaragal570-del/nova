@@ -339,7 +339,7 @@ Notes for the free plan:
 
 The repo has a `Dockerfile` that runs the web app with uvicorn, one process, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It was also run with a PostgreSQL database in a second container on a user-defined Docker network, with `DATABASE_URL` pointing at the database container's name. Nova created the `conversations` and `rag_chunks` tables, a document was indexed into `rag_chunks`, and Nova answered a question from it and named the file. The `workflow_runs` and `workflow_events` tables were not checked in that setup. It has not been tested on macOS or Linux.
 
 Build the image from the repo folder:
 
@@ -357,6 +357,37 @@ Then open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`.
 - The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log and the `workspace/` folder. The main chat (`history.json`) and the edited system prompt (`personality.json`) are not covered, so they are lost when the container is removed. Set `DATABASE_URL` to keep chats in PostgreSQL instead.
 - The server listens on port 8000 inside the container, or on the `PORT` variable if the host sets one.
 - Keep it to one process. A running workflow lives in the server's memory.
+
+### Run with PostgreSQL in a container
+
+To try Nova against a PostgreSQL database that also runs in Docker, put both containers on one user-defined network. Containers on the same network reach each other by container name.
+
+1. Create the network and start PostgreSQL on it:
+
+        docker network create nova-net
+        docker run -d --name nova-pg --network nova-net -e POSTGRES_PASSWORD=novapass -e POSTGRES_DB=nova postgres:16
+
+2. Run Nova on the same network. The `-e DATABASE_URL=...` option comes after `--env-file .env`, so it overrides any value in `.env` for this run:
+
+        docker run --rm -p 8000:8000 --network nova-net --env-file .env -e DATABASE_URL=postgresql://postgres:novapass@nova-pg:5432/nova nova
+
+   The host in the URL is the database container's name, `nova-pg`, not `localhost`. Keep the command on one line. In PowerShell you can split it with a backtick at the end of each line except the last, with nothing after the backtick, not even a space.
+
+3. Open http://127.0.0.1:8000, log in, add a document and ask about it. Then list the tables:
+
+        docker exec nova-pg psql -U postgres -d nova -c "\dt"
+
+   `conversations` and `rag_chunks` appear once you have chatted and added a document. `workflow_runs` and `workflow_events` are created when the app first uses them.
+
+4. Clean up. Stop Nova first, because a network can't be removed while a container is still on it:
+
+        docker stop nova-pg
+        docker rm nova-pg
+        docker network rm nova-net
+
+   If Nova is still running, press Ctrl+C in its window before the last command.
+
+The password `novapass` is only for this throwaway test. Use a real password for anything you keep.
 
 ## Notes
 
@@ -393,9 +424,9 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a FastAPI backend, password-protected API docs, and a live demo on Render.
 
-Planned next: test the Docker image with a PostgreSQL database from inside a container.
+Planned next: a Docker Compose file that starts Nova and PostgreSQL together, and testing the Docker image on macOS or Linux.
 
 ## License
 
