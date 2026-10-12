@@ -1,0 +1,45 @@
+# Runs Nova and PostgreSQL together. See the README, section "Docker Compose".
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: nova
+      # Read from your .env file. Compose stops with a message if it is missing.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nova"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nova:
+    build: .
+    image: nova
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Overrides DATABASE_URL from .env. The host is the service name, db.
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/nova
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - nova_conversations:/app/conversations
+      - nova_workflows:/app/workflow_data
+      - nova_documents:/app/rag_data
+      - nova_memory:/app/memory_data
+      - nova_logs:/app/logs
+      - nova_workspace:/app/workspace
+
+volumes:
+  pgdata:
+  nova_conversations:
+  nova_workflows:
+  nova_documents:
+  nova_memory:
+  nova_logs:
+  nova_workspace:

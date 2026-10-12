@@ -55,7 +55,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
 - Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
-- A `Dockerfile` to run the web app in a container (see Docker below)
+- A `Dockerfile` and a Docker Compose file to run the web app, with PostgreSQL if you want it (see Docker below)
 - Token usage shown after every reply
 - Terminal commands: `/clear`, `/history`, `/model`, `/system` and `/agent`
 - API keys, model name and password kept in a `.env` file
@@ -102,12 +102,14 @@ Under the hood: one FastAPI app with a single password check on every route, one
         TAVILY_API_KEY=
         DATABASE_URL=
         NOVA_EMBED_MODEL=
+        POSTGRES_PASSWORD=
 
    - `GEMINI_API_KEY` is required. Get a key from Google AI Studio.
    - `NOVA_PASSWORD` is required for the web app. If it is empty, the server refuses every request.
    - `TAVILY_API_KEY` is only needed for the web search tool.
    - `NOVA_EMBED_MODEL` is optional. Leave it empty to use `gemini-embedding-001`. See Documents below.
    - `DATABASE_URL` is optional. Leave it empty to save chats, workflow runs and indexed documents as local files. Set it to a PostgreSQL connection string to save them in a database. On your own computer, use a database's external URL; a host's internal URL only works from inside that host.
+   - `POSTGRES_PASSWORD` is only used by Docker Compose (see Docker Compose below). Leave it empty otherwise.
    - Never commit your `.env` file.
 
 ## Run
@@ -339,7 +341,7 @@ Notes for the free plan:
 
 The repo has a `Dockerfile` that runs the web app with uvicorn, one process, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It was also run with a PostgreSQL database in a second container on a user-defined Docker network, with `DATABASE_URL` pointing at the database container's name. Nova created the `conversations` and `rag_chunks` tables, a document was indexed into `rag_chunks`, and Nova answered a question from it and named the file. The `workflow_runs` and `workflow_events` tables were not checked in that setup. It has not been tested on macOS or Linux.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It was also run with a PostgreSQL database in a second container on a user-defined Docker network, with `DATABASE_URL` pointing at the database container's name. Nova created the `conversations` and `rag_chunks` tables, a document was indexed into `rag_chunks`, and Nova answered a question from it and named the file. The Docker Compose file was tested the same way: Nova and PostgreSQL started together, Nova answered from an indexed document, and after `docker compose down` and `docker compose up` the chat and the document were still there. The `workflow_runs` and `workflow_events` tables were not checked in either PostgreSQL setup. Nothing has been tested on macOS or Linux.
 
 Build the image from the repo folder:
 
@@ -389,6 +391,29 @@ To try Nova against a PostgreSQL database that also runs in Docker, put both con
 
 The password `novapass` is only for this throwaway test. Use a real password for anything you keep.
 
+### Docker Compose
+
+`docker-compose.yml` starts Nova and PostgreSQL together, so you don't create the network or run two commands yourself.
+
+1. In your `.env`, set `POSTGRES_PASSWORD` to a password you choose. Use only letters and digits, because the password is placed inside the `DATABASE_URL` and characters such as `@` or `/` would break it. Leave `DATABASE_URL` as it is: Compose overrides it with the address of the database service.
+
+2. Build and start both services:
+
+        docker compose up --build
+
+3. Open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`. Compose starts Nova only after PostgreSQL reports that it is ready.
+
+4. Stop it with Ctrl+C, or from another window:
+
+        docker compose down
+
+- The database lives in a named volume, `pgdata`, and Nova's folders use the same named volumes as the `docker run` command above. `docker compose down` keeps them, so chats and documents survive. `docker compose down -v` deletes every volume and with it all saved data.
+- The database port is not published, so only Nova can reach it. Nova's port is published on `127.0.0.1` only, so it is not reachable from other computers on your network.
+- To look at the tables: `docker compose exec db psql -U postgres -d nova -c "\dt"`
+- The database password is read from `.env`, so no password is stored in `docker-compose.yml`. The same `.env` is also passed to the Nova container, as before.
+- The `pgdata` volume keeps the password it was created with. If you change `POSTGRES_PASSWORD` later, run `docker compose down -v` once, or the database will refuse the new password.
+- `docker compose config` prints every value from your `.env`, including API keys and passwords, so don't paste its output anywhere. `docker compose config --quiet` only checks the file and prints nothing if it is valid.
+
 ## Notes
 
 `.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub. The same paths are listed in `.dockerignore`, so they are never copied into a Docker image either.
@@ -424,9 +449,9 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows), a FastAPI backend, password-protected API docs, and a live demo on Render.
 
-Planned next: a Docker Compose file that starts Nova and PostgreSQL together, and testing the Docker image on macOS or Linux.
+Planned next: test the Docker image and the Compose file on macOS or Linux, and check that workflow runs are saved in PostgreSQL when run from a container.
 
 ## License
 
