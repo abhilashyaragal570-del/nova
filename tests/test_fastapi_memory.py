@@ -106,7 +106,7 @@ def test_delete_unknown_id_is_404(client):
 
 
 def test_docs_page_and_schema_exist(client):
-    assert client.get("/docs").status_code == 200
-    paths = client.get("/openapi.json").json()["paths"]
+    assert client.get("/docs", auth=AUTH).status_code == 200
+    paths = client.get("/openapi.json", auth=AUTH).json()["paths"]
     assert "/memory" in paths
     assert "/memory/{fact_id}" in paths

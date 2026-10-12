@@ -43,7 +43,7 @@ def test_flask_usage_page_is_html(client):
 
 
 def test_memory_is_answered_by_fastapi_not_flask(client):
-    paths = client.get("/openapi.json").json()["paths"]
+    paths = client.get("/openapi.json", auth=AUTH).json()["paths"]
     assert "/memory" in paths
     # The /usage page is still Flask, so FastAPI doesn't list it.
     assert "/usage" not in paths
@@ -54,4 +54,4 @@ def test_memory_is_answered_by_fastapi_not_flask(client):
 
 
 def test_docs_still_work_after_mounting(client):
-    assert client.get("/docs").status_code == 200
+    assert client.get("/docs", auth=AUTH).status_code == 200

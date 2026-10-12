@@ -113,7 +113,7 @@ The web app's API is a FastAPI app in `web/fastapi_app.py`. Start it with:
 
         uvicorn web.fastapi_app:app --port 8000
 
-Open http://127.0.0.1:8000 and log in with the password from `NOVA_PASSWORD`. Open http://127.0.0.1:8000/docs for a page that lists every API route and can try them. The `/docs` page itself opens without a password, but every route it calls still asks for one.
+Open http://127.0.0.1:8000 and log in with the password from `NOVA_PASSWORD`. Open http://127.0.0.1:8000/docs for a page that lists every API route and can try them. `/docs`, `/redoc` and `/openapi.json` sit behind the same password as everything else, so nothing about the API is visible without logging in. The browser asks for the login once and then remembers it, so **Try it out** works.
 
 `web/server.py` holds the state the routes share (conversations, tools, approvals, workflows, personality, document index) and a small Flask app that serves only the chat page and the usage page. FastAPI mounts that Flask app, so both pages use the same password.
 
@@ -372,9 +372,9 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), and a FastAPI backend.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), a FastAPI backend, and password-protected API docs.
 
-Planned next: rebuild and test the Docker image with uvicorn, and turn off the open `/docs` page before the app goes online.
+Planned next: rebuild and test the Docker image with uvicorn.
 
 ## License
 

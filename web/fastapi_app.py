@@ -10,8 +10,9 @@ State is shared with Flask by going through the web.server module at call
 time: its conversation store, its current personality, its approval broker,
 its workflow manager and its tool registry. Tests replace those.
 
-FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
-Run it with: uvicorn web.fastapi_app:app --port 8001
+The API docs (/docs, /redoc and /openapi.json) list every FastAPI route and can
+try them. They sit behind the same password as everything else.
+Run the app with: uvicorn web.fastapi_app:app --port 8000
 """
 import hmac
 import json
@@ -24,6 +25,7 @@ from typing import Annotated, Any
 from a2wsgi import WSGIMiddleware
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from google.genai import errors
@@ -76,7 +78,15 @@ def require_password(
     )
 
 
-app = FastAPI(title="Nova", dependencies=[Depends(require_password)])
+# FastAPI's own docs pages are switched off because it adds them without the
+# password check. They are added back below as normal routes, which do get it.
+app = FastAPI(
+    title="Nova",
+    dependencies=[Depends(require_password)],
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 
 class FactIn(BaseModel):
@@ -173,6 +183,27 @@ async def bad_request(request, exc: RequestValidationError):
     else:
         message = "fact must be text"
     return JSONResponse({"error": message}, status_code=400)
+
+
+# ---------- API docs ----------
+# Behind the password like every other route. The browser asks for the login
+# once and then sends it with the page's own requests, so "Try it out" works.
+# They are left out of the schema, so they don't list themselves.
+
+
+@app.get("/openapi.json", include_in_schema=False)
+def openapi_schema():
+    return app.openapi()
+
+
+@app.get("/docs", include_in_schema=False)
+def swagger_ui():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="Nova - API docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+def redoc_page():
+    return get_redoc_html(openapi_url="/openapi.json", title="Nova - API docs")
 
 
 # ---------- memory ----------

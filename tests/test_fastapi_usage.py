@@ -88,7 +88,7 @@ def test_usage_api_includes_the_older_log(monkeypatch, tmp_path):
 
 
 def test_usage_api_is_listed_in_docs_but_the_page_is_not(client):
-    paths = client.get("/openapi.json").json()["paths"]
+    paths = client.get("/openapi.json", auth=AUTH).json()["paths"]
     assert "/api/usage" in paths
     # The /usage page is still served by Flask, so FastAPI doesn't list it.
     assert "/usage" not in paths
