@@ -1,10 +1,10 @@
 """Nova's FastAPI app.
 
-The /memory, /documents, /system, /conversations, /approvals and /workflows
-routes are FastAPI. Every other route (/chat, /api/agents, /usage and the page
-itself) is still the Flask app in web/server.py, mounted at the end so the
-FastAPI routes are matched first. Flask keeps doing its own password check for
-the routes it serves.
+The /memory, /documents, /system, /conversations, /approvals, /workflows and
+/api/usage routes are FastAPI. Every other route (/chat, /api/agents, the
+/usage page and the chat page itself) is still the Flask app in web/server.py,
+mounted at the end so the FastAPI routes are matched first. Flask keeps doing
+its own password check for the routes it serves.
 
 State is shared with Flask by going through the web.server module at call
 time: its conversation store, its current personality, its approval broker and
@@ -29,6 +29,8 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 
 from app.chat import fact_store
+from app.usage_log import get_log_path
+from app.usage_report import read_all_entries, summarize
 from memory.conversation_store import NEW_TITLE
 from rag.embedder import EmbedError
 from rag.index import RagIndexError
@@ -398,6 +400,19 @@ def resume_workflow_route(workflow_id: str):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"id": run_id}
+
+
+# ---------- usage report ----------
+# Only the JSON route moves. The /usage page just serves usage.html, so Flask
+# keeps doing that through the mount.
+
+
+@app.get("/api/usage", response_model=dict[str, Any])
+def api_usage():
+    entries, skipped = read_all_entries(get_log_path())
+    summary = summarize(entries)
+    summary["skipped"] = skipped
+    return summary
 
 
 # Must stay last: a mount at "/" matches every path that no route above took.
