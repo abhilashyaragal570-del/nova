@@ -1,16 +1,21 @@
 """Nova's FastAPI app.
 
-The /memory and /documents routes are FastAPI. Every other route is still the
-Flask app in web/server.py, mounted at the end so the FastAPI routes are
-matched first. Flask keeps doing its own password check for the routes it
+The /memory, /documents, /system, /conversations and /approvals routes are
+FastAPI. Every other route (/chat and /workflows, plus the page itself) is
+still the Flask app in web/server.py, mounted at the end so the FastAPI routes
+are matched first. Flask keeps doing its own password check for the routes it
 serves.
+
+State is shared with Flask by going through the web.server module at call
+time: its conversation store, its current personality and its approval broker.
+Tests replace those, and the Flask /chat route reads the same ones.
 
 FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
 Run it with: uvicorn web.fastapi_app:app --port 8001
 """
 import hmac
 import os
-from typing import Annotated
+from typing import Annotated, Any
 
 from a2wsgi import WSGIMiddleware
 from fastapi import Depends, FastAPI, Request
@@ -23,6 +28,7 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 
 from app.chat import fact_store
+from memory.conversation_store import NEW_TITLE
 from rag.embedder import EmbedError
 from rag.index import RagIndexError
 from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
@@ -79,6 +85,24 @@ class Uploaded(BaseModel):
     chunks: int
 
 
+class SystemIn(BaseModel):
+    prompt: str
+
+
+class Prompt(BaseModel):
+    prompt: str
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+
+
+class ApprovalIn(BaseModel):
+    # Any value is accepted on purpose: only the real JSON value true approves.
+    approved: Any = None
+
+
 # Errors keep the {"error": "..."} shape that web/index.html reads.
 @app.exception_handler(HTTPException)
 async def http_error(request, exc: HTTPException):
@@ -89,9 +113,15 @@ async def http_error(request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def bad_request(request, exc: RequestValidationError):
-    # Only the /memory body can fail validation. Flask answered a missing or
-    # non-text fact with this same message and a 400.
-    return JSONResponse({"error": "fact must be text"}, status_code=400)
+    # Flask gave each of these routes its own message for a bad body.
+    path = request.url.path
+    if path == "/system":
+        message = "Empty personality"
+    elif path.startswith("/approvals"):
+        message = "Invalid request"
+    else:
+        message = "fact must be text"
+    return JSONResponse({"error": message}, status_code=400)
 
 
 # ---------- memory ----------
@@ -225,6 +255,73 @@ def remove_document(source: str):
         raise HTTPException(503, str(e))
     if not removed:
         raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+# ---------- personality ----------
+
+
+@app.get("/system", response_model=Prompt)
+def get_system():
+    return {"prompt": flask_server.current_prompt}
+
+
+@app.post("/system", response_model=Prompt)
+def set_system(body: SystemIn):
+    new_prompt = body.prompt.strip()
+    if not new_prompt:
+        raise HTTPException(400, "Empty personality")
+    try:
+        # Save first, so a failed save does not leave the live prompt changed.
+        flask_server.save_prompt(new_prompt)
+    except OSError:
+        raise HTTPException(503, "Could not save the personality")
+    flask_server.current_prompt = new_prompt
+    return {"prompt": new_prompt}
+
+
+# ---------- conversations ----------
+
+
+@app.get("/conversations", response_model=list[ConversationSummary])
+def list_conversations():
+    return flask_server.store.list_conversations()
+
+
+@app.post("/conversations", response_model=ConversationSummary)
+def create_conversation():
+    cid = flask_server.store.create()
+    return {"id": cid, "title": NEW_TITLE}
+
+
+@app.get("/conversations/{cid}")
+def get_conversation(cid: str):
+    conv = flask_server.store.load(cid)
+    if conv is None:
+        raise HTTPException(404, "Not found")
+    return conv
+
+
+@app.delete("/conversations/{cid}", response_model=Ok)
+def delete_conversation(cid: str):
+    if not flask_server.store.delete(cid):
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+# ---------- tool approvals ----------
+
+
+@app.get("/approvals", response_model=list[dict[str, Any]])
+def list_approvals():
+    return flask_server.approvals.list_pending()
+
+
+@app.post("/approvals/{approval_id}", response_model=Ok)
+def answer_approval(approval_id: str, body: ApprovalIn | None = None):
+    approved = body is not None and body.approved is True
+    if not flask_server.approvals.resolve(approval_id, approved):
+        raise HTTPException(404, "Unknown or already answered")
     return {"ok": True}
 
 
