@@ -21,33 +21,33 @@ def test_the_chat_page_is_served_by_flask_through_fastapi(client):
 
 
 def test_flask_routes_still_need_the_password(client):
-    res = client.get("/workflows/current")
+    res = client.get("/api/agents")
     assert res.status_code == 401
     assert "Basic" in res.headers["www-authenticate"]
 
 
 def test_flask_routes_work_with_the_password(client):
-    res = client.get("/workflows/current", auth=AUTH)
+    res = client.get("/api/agents", auth=AUTH)
     assert res.status_code == 200
-    assert "state" in res.json()
+    assert isinstance(res.json(), list)
 
 
 def test_flask_refuses_everything_when_no_password_is_set(client, monkeypatch):
     monkeypatch.delenv("NOVA_PASSWORD", raising=False)
-    res = client.get("/workflows/current", auth=AUTH)
+    res = client.get("/api/agents", auth=AUTH)
     assert res.status_code == 503
 
 
-def test_flask_workflows_route_returns_a_list(client):
-    res = client.get("/workflows", auth=AUTH)
-    assert res.status_code in (200, 503)
+def test_flask_agents_list_has_names(client):
+    res = client.get("/api/agents", auth=AUTH)
+    assert all("name" in agent for agent in res.json())
 
 
 def test_memory_is_answered_by_fastapi_not_flask(client):
     paths = client.get("/openapi.json").json()["paths"]
     assert "/memory" in paths
-    # /workflows and /chat are still Flask, so FastAPI doesn't list them.
-    assert "/workflows/current" not in paths
+    # /chat and /api/agents are still Flask, so FastAPI doesn't list them.
+    assert "/api/agents" not in paths
     assert "/chat" not in paths
     res = client.post("/memory", json={"fact": "I like tea"}, auth=AUTH)
     assert res.status_code == 201

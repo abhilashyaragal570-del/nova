@@ -1,14 +1,15 @@
 """Nova's FastAPI app.
 
-The /memory, /documents, /system, /conversations and /approvals routes are
-FastAPI. Every other route (/chat and /workflows, plus the page itself) is
-still the Flask app in web/server.py, mounted at the end so the FastAPI routes
-are matched first. Flask keeps doing its own password check for the routes it
-serves.
+The /memory, /documents, /system, /conversations, /approvals and /workflows
+routes are FastAPI. Every other route (/chat, /api/agents, /usage and the page
+itself) is still the Flask app in web/server.py, mounted at the end so the
+FastAPI routes are matched first. Flask keeps doing its own password check for
+the routes it serves.
 
 State is shared with Flask by going through the web.server module at call
-time: its conversation store, its current personality and its approval broker.
-Tests replace those, and the Flask /chat route reads the same ones.
+time: its conversation store, its current personality, its approval broker and
+its workflow manager. Tests replace those, and the Flask /chat route reads the
+same ones.
 
 FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
 Run it with: uvicorn web.fastapi_app:app --port 8001
@@ -33,6 +34,8 @@ from rag.embedder import EmbedError
 from rag.index import RagIndexError
 from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
 from web import server as flask_server
+from web.workflow_runs import Busy
+from workflows.store import StoreError
 
 # Room for one file plus the form overhead, the same limit Flask used.
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 100_000
@@ -103,6 +106,17 @@ class ApprovalIn(BaseModel):
     approved: Any = None
 
 
+class WorkflowIn(BaseModel):
+    # Any value is accepted on purpose: the route checks the goal itself, and
+    # only the real JSON value true turns on tools that change things.
+    goal: Any = None
+    write_tools: Any = None
+
+
+class RunId(BaseModel):
+    id: str
+
+
 # Errors keep the {"error": "..."} shape that web/index.html reads.
 @app.exception_handler(HTTPException)
 async def http_error(request, exc: HTTPException):
@@ -117,7 +131,9 @@ async def bad_request(request, exc: RequestValidationError):
     path = request.url.path
     if path == "/system":
         message = "Empty personality"
-    elif path.startswith("/approvals"):
+    elif path == "/workflows":
+        message = "Empty goal"
+    elif path.startswith("/approvals") or path.startswith("/workflows/"):
         message = "Invalid request"
     else:
         message = "fact must be text"
@@ -323,6 +339,65 @@ def answer_approval(approval_id: str, body: ApprovalIn | None = None):
     if not flask_server.approvals.resolve(approval_id, approved):
         raise HTTPException(404, "Unknown or already answered")
     return {"ok": True}
+
+
+# ---------- workflows ----------
+# These use flask_server.workflow_manager, so there is still one manager and
+# only one workflow can plan or run at a time.
+
+
+@app.post("/workflows", response_model=RunId, status_code=202)
+def start_workflow(body: WorkflowIn | None = None):
+    goal = body.goal if body is not None else None
+    if not isinstance(goal, str) or not goal.strip():
+        raise HTTPException(400, "Empty goal")
+    write_tools = body.write_tools is True
+    try:
+        run_id = flask_server.workflow_manager.start(goal, write_tools)
+    except Busy as e:
+        raise HTTPException(409, str(e))
+    return {"id": run_id}
+
+
+@app.get("/workflows", response_model=list[dict[str, Any]])
+def list_workflows():
+    try:
+        return flask_server.workflow_manager.list_saved()
+    except StoreError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/workflows/current", response_model=dict[str, Any])
+def current_workflow():
+    return flask_server.workflow_manager.snapshot() or {"state": "idle"}
+
+
+@app.post("/workflows/{run_id}/approve", response_model=Ok)
+def answer_workflow_plan(run_id: str, body: ApprovalIn | None = None):
+    approved = body is not None and body.approved is True
+    if not flask_server.workflow_manager.approve(run_id, approved):
+        raise HTTPException(404, "No plan is waiting under that id")
+    return {"ok": True}
+
+
+@app.post("/workflows/{run_id}/cancel", response_model=Ok)
+def cancel_workflow(run_id: str):
+    if not flask_server.workflow_manager.cancel(run_id):
+        raise HTTPException(404, "Nothing to cancel under that id")
+    return {"ok": True}
+
+
+@app.post("/workflows/{workflow_id}/resume", response_model=RunId, status_code=202)
+def resume_workflow_route(workflow_id: str):
+    try:
+        run_id = flask_server.workflow_manager.resume(workflow_id)
+    except Busy as e:
+        raise HTTPException(409, str(e))
+    except StoreError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": run_id}
 
 
 # Must stay last: a mount at "/" matches every path that no route above took.
