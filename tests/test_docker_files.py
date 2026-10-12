@@ -8,10 +8,13 @@ def read_lines(name):
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def test_dockerfile_starts_gunicorn_with_one_worker():
+def test_dockerfile_starts_uvicorn_with_one_process():
     text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "gunicorn web.server:app" in text
-    assert "--workers 1" in text
+    assert "uvicorn web.fastapi_app:app" in text
+    # A running workflow lives in the server's memory, so there must be only
+    # one process. uvicorn runs one unless --workers is given.
+    assert "--workers" not in text
+    assert "gunicorn" not in text
 
 
 def test_dockerfile_runs_as_a_normal_user():

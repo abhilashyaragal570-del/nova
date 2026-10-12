@@ -22,6 +22,7 @@ USER nova
 
 EXPOSE 8000
 
-# One worker: a running workflow lives in the server's memory.
+# One worker: a running workflow lives in the server's memory. uvicorn runs a
+# single worker unless told otherwise.
 # Settings (GEMINI_API_KEY, NOVA_PASSWORD, ...) come from the environment.
-CMD ["sh", "-c", "exec gunicorn web.server:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:${PORT:-8000}"]
+CMD ["sh", "-c", "exec uvicorn web.fastapi_app:app --host 0.0.0.0 --port ${PORT:-8000}"]

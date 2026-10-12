@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, and optional PostgreSQL storage.
 
 ## Screenshots
 
@@ -18,7 +18,7 @@ The approval card that appears before a tool changes anything:
 
 ```mermaid
 flowchart LR
-    UI["Web page and terminal"] --> SRV["Flask server<br/>password + approval cards"]
+    UI["Web page and terminal"] --> SRV["FastAPI server<br/>password + approval cards"]
     SRV --> AG["Router and agents<br/>researcher, notes, files, nova"]
     SRV --> WF["Workflow engine<br/>plan, approve, run, retry, resume"]
     AG --> POL["Tool policy<br/>read-only, approval, timeouts, URL blocking"]
@@ -35,7 +35,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 
 ## Features
 
-- Password-protected web interface built with Flask, with saved conversations and an editable system prompt
+- Password-protected web interface with a FastAPI backend, with saved conversations and an editable system prompt
 - Streaming responses, printed as they are generated
 - Tool-using agent: Gemini decides when to call a built-in tool
 - Built-in tools: calculator, file tools, web search, an API request tool, document search and long-term memory
@@ -99,13 +99,23 @@ Type `exit` to quit, `/clear` to forget the conversation, `/history` to see rece
 
 ### Web app
 
-        flask --app web.server run
+        uvicorn web.fastapi_app:app --port 8000
 
-Open http://127.0.0.1:5000 in your browser. The browser asks for a login. Use any username and your `NOVA_PASSWORD`.
+Open http://127.0.0.1:8000 in your browser. The browser asks for a login. Use any username and your `NOVA_PASSWORD`.
 
 When Nova wants to run a tool that changes things, such as writing a file or calling an API, a card appears above the message box. Nothing runs until you click **Approve**, and **Deny** cancels it. If you don't answer within 60 seconds, it counts as a denial.
 
 The **Memory** button in the header opens the memory panel (see Long-term memory below), the **Documents** button opens the document panel (see Documents below), and the **Workflows** button opens the workflow panel (see Workflows below).
+
+## FastAPI backend
+
+The web app's API is a FastAPI app in `web/fastapi_app.py`. Start it with:
+
+        uvicorn web.fastapi_app:app --port 8000
+
+Open http://127.0.0.1:8000 and log in with the password from `NOVA_PASSWORD`. Open http://127.0.0.1:8000/docs for a page that lists every API route and can try them. The `/docs` page itself opens without a password, but every route it calls still asks for one.
+
+`web/server.py` holds the state the routes share (conversations, tools, approvals, workflows, personality, document index) and a small Flask app that serves only the chat page and the usage page. FastAPI mounts that Flask app, so both pages use the same password.
 
 ## Tools
 
@@ -291,11 +301,11 @@ Long-term memory facts are always a local file, `memory_data/facts.json`, whatev
 
 1. Push the repo to GitHub and create a **Web Service** on Render from it.
 2. Build command: `pip install -r requirements.txt`
-3. Start command: `gunicorn web.server:app --workers 1 --threads 4 --timeout 120`
+3. Start command: `uvicorn web.fastapi_app:app --host 0.0.0.0 --port $PORT`
 4. Add the variables from `.env` under **Environment**: at least `GEMINI_API_KEY`, `GEMINI_MODEL` and `NOVA_PASSWORD`. Optionally add `PYTHON_VERSION=3.12.3`.
 5. To keep chats and workflow runs across restarts, create a **Postgres** database on Render in the same region, and add its **Internal Database URL** as `DATABASE_URL`.
 
-Keep `--workers 1`. The workflow that is planning or running lives in the server's memory, so a second worker would not see it.
+Keep a single uvicorn process (don't add `--workers`). The workflow that is planning or running lives in the server's memory, so a second worker would not see it.
 
 Notes for the free plan:
 
@@ -306,9 +316,9 @@ Notes for the free plan:
 
 ## Docker
 
-The repo has a `Dockerfile` that runs the web app with gunicorn, one worker, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
+The repo has a `Dockerfile` that runs the web app with uvicorn, one process, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** the image was built and run on Windows with Docker Desktop (WSL 2). Login, chat and the Memory panel worked in the container, using local files for storage. It has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2) when the app started with gunicorn. Login, chat and the Memory panel worked in the container, using local files for storage. The start command has since changed to uvicorn, and the image has not been rebuilt and tested with it yet. It also has not been tested with a PostgreSQL database from inside a container, or on macOS or Linux.
 
 Build the image from the repo folder:
 
@@ -325,7 +335,7 @@ Then open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`.
 - Each `-v name:/app/folder` option is a named Docker volume. It keeps that folder's files when the container is removed and started again. Without it, everything the container wrote is lost when it stops.
 - The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log and the `workspace/` folder. The main chat (`history.json`) and the edited system prompt (`personality.json`) are not covered, so they are lost when the container is removed. Set `DATABASE_URL` to keep chats in PostgreSQL instead.
 - The server listens on port 8000 inside the container, or on the `PORT` variable if the host sets one.
-- Keep it to one worker. A running workflow lives in the server's memory.
+- Keep it to one process. A running workflow lives in the server's memory.
 
 ## Notes
 
@@ -362,9 +372,9 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, and a Dockerfile (built and run on Windows).
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows), and a FastAPI backend.
 
-Planned next: a FastAPI backend.
+Planned next: rebuild and test the Docker image with uvicorn, and turn off the open `/docs` page before the app goes online.
 
 ## License
 

@@ -1,10 +1,7 @@
 import json
 
-from flask import Flask
-
 from app import usage_report
 from app.usage_report import old_log_path, read_all_entries
-from web import usage_api
 
 
 def entry(tool="calculator", tokens=10, source="web"):
@@ -92,15 +89,3 @@ def test_report_without_an_older_log_is_unchanged(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(usage_report, "get_log_path", lambda: empty)
     assert usage_report.main() == 1
     assert "No usage log found" in capsys.readouterr().out
-
-
-def test_web_api_includes_the_older_log(tmp_path, monkeypatch):
-    log = tmp_path / "usage.jsonl"
-    write(tmp_path / "usage.jsonl.1", entry("old", tokens=10))
-    write(log, entry("new", tokens=5))
-    monkeypatch.setattr(usage_api, "get_log_path", lambda: log)
-    app = Flask(__name__)
-    usage_api.register_usage_routes(app, tmp_path)
-    data = app.test_client().get("/api/usage").get_json()
-    assert data["turns"] == 2
-    assert data["total_tokens"] == 15

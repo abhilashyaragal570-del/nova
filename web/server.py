@@ -1,24 +1,33 @@
+"""Shared state for Nova's web app, plus the two pages Flask still serves.
+
+Every API route lives in web/fastapi_app.py. This module holds what those
+routes share: the conversation store, the tool registry, the approval broker,
+the workflow manager, the personality and the document index. It also has a
+small Flask app that serves only the chat page (/) and the usage page (/usage).
+FastAPI mounts that Flask app at the end, so both pages sit behind the same
+password.
+
+Start the web app with:
+    uvicorn web.fastapi_app:app --port 8000
+"""
 import hmac
-import os
 import json
-import queue
-import threading
+import os
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request, send_from_directory
-from google.genai import errors
+from flask import Flask, Response, request, send_from_directory
 
+# new_chat, log_turn, MAIN_ID, llm_client and MODEL_NAME are not used in this
+# file. web/fastapi_app.py reads them from here at call time, and tests replace
+# them here.
 from app.chat import new_chat, SYSTEM_PROMPT, fact_store
 from app.llm import ask as model
 from app.llm import client as llm_client, MODEL as MODEL_NAME
-from app.tool_loop import run_turn
 from app.usage_log import log_turn
-from memory.conversation_store import MAIN_ID, NEW_TITLE
+from memory.conversation_store import MAIN_ID
 from memory.store_factory import create_store
-from rag.embedder import EmbedError, GeminiEmbedder
-from rag.index import RagIndexError
+from rag.embedder import GeminiEmbedder
 from rag.index_factory import create_document_index
-from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
 from tools.api_request import ApiRequestTool
 from tools.calculator import CalculatorTool
 from tools.document_search import DocumentSearchTool
@@ -27,22 +36,18 @@ from tools.memory_tools import ForgetTool, ListMemoriesTool, RememberTool
 from tools.policy import ToolPolicy
 from tools.registry import ToolRegistry
 from tools.web_search import WebSearchTool
-from web.agents_api import register_agent_routes
 from web.approvals import ApprovalBroker
-from web.usage_api import register_usage_routes
-from web.workflow_runs import Busy, WorkflowManager
+from web.workflow_runs import WorkflowManager
 from workflows.executor import WorkflowExecutor
 from workflows.gemini_planner import make_planner
-from workflows.store import StoreError
 from workflows.store_factory import create_workflow_store
 
 WEB_DIR = Path(__file__).parent
 PROMPT_FILE = Path("personality.json")
 store = create_store()
+
+# Only the two pages are Flask now: / and /usage.
 app = Flask(__name__)
-# Room for one file plus the form overhead. Anything bigger is refused
-# before it is read into memory.
-app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_BYTES + 100_000
 
 # Tools that need approval pause until the browser answers Approve or Deny
 # (see web/approvals.py). No answer within the timeout counts as a denial.
@@ -62,13 +67,6 @@ for _tool in (
     ListMemoriesTool(fact_store),
 ):
     web_registry.register(_tool)
-
-# Agents get a restricted copy of web_registry with the same policy, so any
-# tool that needs approval shows the same Approve / Deny card as chat.
-register_agent_routes(app, web_registry, store, llm_client, MODEL_NAME)
-
-# The usage report page and its JSON data.
-register_usage_routes(app, WEB_DIR)
 
 # Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
 WORKFLOW_DEADLINE_SECONDS = 600.0
@@ -120,13 +118,6 @@ def require_password():
     )
 
 
-@app.errorhandler(413)
-def request_too_large(error):
-    return jsonify(
-        {"error": f"That upload is too large (max {MAX_FILE_BYTES // 1000} KB per file)"}
-    ), 413
-
-
 def load_prompt():
     try:
         data = json.loads(PROMPT_FILE.read_text(encoding="utf-8"))
@@ -149,259 +140,6 @@ def index():
     return send_from_directory(WEB_DIR, "index.html")
 
 
-@app.get("/system")
-def get_system():
-    return jsonify({"prompt": current_prompt})
-
-
-@app.post("/system")
-def set_system():
-    global current_prompt
-    data = request.get_json(silent=True) or {}
-    new_prompt = (data.get("prompt") or "").strip()
-    if not new_prompt:
-        return jsonify({"error": "Empty personality"}), 400
-    current_prompt = new_prompt
-    save_prompt(current_prompt)
-    return jsonify({"prompt": current_prompt})
-
-
-@app.get("/conversations")
-def conversations():
-    return jsonify(store.list_conversations())
-
-
-@app.post("/conversations")
-def create_conversation():
-    cid = store.create()
-    return jsonify({"id": cid, "title": NEW_TITLE})
-
-
-@app.get("/conversations/<cid>")
-def get_conversation(cid):
-    conv = store.load(cid)
-    if conv is None:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify(conv)
-
-
-@app.delete("/conversations/<cid>")
-def delete_conversation(cid):
-    if not store.delete(cid):
-        return jsonify({"error": "Not found"}), 404
-    return jsonify({"ok": True})
-
-
-@app.post("/chat")
-def chat():
-    data = request.get_json(silent=True) or {}
-    user_input = (data.get("message") or "").strip()
-    if not user_input:
-        return jsonify({"error": "Empty message"}), 400
-
-    cid = data.get("conversation") or MAIN_ID
-    conv = store.load(cid)
-    if conv is None:
-        return jsonify({"error": "Conversation not found"}), 404
-
-    messages = conv["messages"]
-    title = conv["title"]
-    if cid != MAIN_ID and title == NEW_TITLE:
-        title = user_input[:40]
-    chat_session = new_chat(messages, current_prompt)
-
-    def generate():
-        # run_turn blocks, so it runs in a thread and hands text over a queue.
-        chunks = queue.Queue()
-        outcome = {}
-
-        def worker():
-            try:
-                outcome["result"] = run_turn(
-                    chat_session, user_input, web_registry, on_text=chunks.put
-                )
-                log_turn(outcome["result"], source="web")
-            except errors.APIError as e:
-                outcome["error"] = e
-            finally:
-                chunks.put(None)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-        reply = ""
-        try:
-            while True:
-                text = chunks.get()
-                if text is None:
-                    break
-                reply += text
-                yield text
-            error = outcome.get("error")
-            if error is not None:
-                yield f"\n[Nova couldn't reply: error {error.code}. Try again in a moment.]"
-                return
-        finally:
-            if reply:
-                messages.append({"role": "user", "text": user_input})
-                messages.append({"role": "model", "text": reply})
-                store.save(cid, title, messages)
-
-        result = outcome.get("result")
-        if result is None:
-            return
-        if not reply:
-            print(
-                "EMPTY REPLY: tool_calls =", result.tool_calls,
-                "hit_round_limit =", result.hit_round_limit,
-                flush=True,
-            )
-        if result.total_tokens:
-            info = {
-                "prompt": result.prompt_tokens,
-                "reply": result.reply_tokens,
-                "total": result.total_tokens,
-            }
-            yield "\x00" + json.dumps(info)
-
-    return Response(generate(), mimetype="text/plain")
-
-
-@app.get("/documents")
-def list_documents():
-    try:
-        return jsonify(get_document_index().list_documents())
-    except RagIndexError as e:
-        return jsonify({"error": str(e)}), 503
-
-
-@app.post("/documents")
-def upload_document():
-    upload = request.files.get("file")
-    if upload is None or not upload.filename:
-        return jsonify({"error": "Choose a file to upload"}), 400
-    # Read one byte past the limit so a too-big file is noticed, not truncated.
-    data = upload.read(MAX_FILE_BYTES + 1)
-    try:
-        result = add_upload(upload.filename, data, get_document_index(), get_embedder())
-    except IngestError as e:
-        return jsonify({"error": str(e)}), 400
-    except EmbedError as e:
-        return jsonify({"error": f"Could not read the file for search: {e}"}), 502
-    except RagIndexError as e:
-        return jsonify({"error": str(e)}), 409
-    return jsonify(result), 201
-
-
-@app.delete("/documents/<source>")
-def remove_document(source):
-    try:
-        removed = get_document_index().remove_document(source)
-    except RagIndexError as e:
-        return jsonify({"error": str(e)}), 503
-    if not removed:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify({"ok": True})
-
-
-@app.get("/approvals")
-def list_approvals():
-    return jsonify(approvals.list_pending())
-
-
-@app.post("/approvals/<approval_id>")
-def answer_approval(approval_id):
-    data = request.get_json(silent=True) or {}
-    approved = data.get("approved") is True
-    if not approvals.resolve(approval_id, approved):
-        return jsonify({"error": "Unknown or already answered"}), 404
-    return jsonify({"ok": True})
-
-
-# Long-term memory, managed by hand from the browser. These routes do not need
-# an Approve card: the card exists so the model cannot change memory on its
-# own, and here the person is clicking the button themselves. They use the
-# same fact_store as the remember / forget tools, and sit behind the password.
-@app.get("/memory")
-def list_memory():
-    return jsonify(fact_store.list())
-
-
-@app.post("/memory")
-def add_memory():
-    data = request.get_json(silent=True) or {}
-    try:
-        fact = fact_store.add(data.get("fact"))
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except OSError:
-        return jsonify({"error": "Could not save the fact"}), 503
-    return jsonify(fact), 201
-
-
-@app.delete("/memory/<fact_id>")
-def delete_memory(fact_id):
-    try:
-        removed = fact_store.remove(fact_id)
-    except OSError:
-        return jsonify({"error": "Could not update memory"}), 503
-    if not removed:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify({"ok": True})
-
-
-@app.post("/workflows")
-def start_workflow():
-    data = request.get_json(silent=True) or {}
-    goal = data.get("goal")
-    if not isinstance(goal, str) or not goal.strip():
-        return jsonify({"error": "Empty goal"}), 400
-    try:
-        run_id = workflow_manager.start(goal, data.get("write_tools") is True)
-    except Busy as e:
-        return jsonify({"error": str(e)}), 409
-    return jsonify({"id": run_id}), 202
-
-
-@app.get("/workflows")
-def list_workflows():
-    try:
-        return jsonify(workflow_manager.list_saved())
-    except StoreError as e:
-        return jsonify({"error": str(e)}), 503
-
-
-@app.get("/workflows/current")
-def current_workflow():
-    return jsonify(workflow_manager.snapshot() or {"state": "idle"})
-
-
-@app.post("/workflows/<run_id>/approve")
-def answer_workflow_plan(run_id):
-    data = request.get_json(silent=True) or {}
-    if not workflow_manager.approve(run_id, data.get("approved") is True):
-        return jsonify({"error": "No plan is waiting under that id"}), 404
-    return jsonify({"ok": True})
-
-
-@app.post("/workflows/<run_id>/cancel")
-def cancel_workflow(run_id):
-    if not workflow_manager.cancel(run_id):
-        return jsonify({"error": "Nothing to cancel under that id"}), 404
-    return jsonify({"ok": True})
-
-
-@app.post("/workflows/<workflow_id>/resume")
-def resume_workflow_route(workflow_id):
-    try:
-        run_id = workflow_manager.resume(workflow_id)
-    except Busy as e:
-        return jsonify({"error": str(e)}), 409
-    except StoreError as e:
-        return jsonify({"error": str(e)}), 404
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({"id": run_id}), 202
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+@app.get("/usage")
+def usage_page():
+    return send_from_directory(WEB_DIR, "usage.html")
