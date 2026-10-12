@@ -128,7 +128,7 @@ def test_system_save_failure_gives_503_and_keeps_the_old_prompt(client, monkeypa
     assert client.get("/system").json() == {"prompt": "Original prompt"}
 
 
-def test_the_flask_chat_uses_the_personality_set_through_fastapi(client, monkeypatch):
+def test_the_chat_uses_the_personality_set_through_fastapi(client, monkeypatch):
     seen = []
 
     def fake_new_chat(messages, prompt):
@@ -237,4 +237,3 @@ def test_the_new_routes_are_listed_in_docs(client):
         "/approvals/{approval_id}",
     ):
         assert path in paths
-    assert "/chat" not in paths

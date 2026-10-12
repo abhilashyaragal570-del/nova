@@ -1,15 +1,14 @@
 """Nova's FastAPI app.
 
-The /memory, /documents, /system, /conversations, /approvals, /workflows,
-/api/usage and /api/agents routes are FastAPI. Every other route (/chat, the
-/usage page and the chat page itself) is still the Flask app in web/server.py,
-mounted at the end so the FastAPI routes are matched first. Flask keeps doing
-its own password check for the routes it serves.
+The /chat, /memory, /documents, /system, /conversations, /approvals,
+/workflows, /api/usage and /api/agents routes are FastAPI. The only routes
+still served by the Flask app in web/server.py are the chat page itself and
+the /usage page. Flask is mounted at the end so the FastAPI routes are matched
+first, and it keeps doing its own password check for those two pages.
 
 State is shared with Flask by going through the web.server module at call
 time: its conversation store, its current personality, its approval broker,
-its workflow manager and its tool registry. Tests replace those, and the Flask
-/chat route reads the same ones.
+its workflow manager and its tool registry. Tests replace those.
 
 FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
 Run it with: uvicorn web.fastapi_app:app --port 8001
@@ -145,6 +144,12 @@ class ChatIn(BaseModel):
     message: Any = None
 
 
+class MainChatIn(BaseModel):
+    # Any value is accepted on purpose: the route checks both fields itself.
+    message: Any = None
+    conversation: Any = None
+
+
 # Errors keep the {"error": "..."} shape that web/index.html reads.
 @app.exception_handler(HTTPException)
 async def http_error(request, exc: HTTPException):
@@ -163,7 +168,7 @@ async def bad_request(request, exc: RequestValidationError):
         message = "Empty goal"
     elif path.startswith("/approvals") or path.startswith("/workflows/"):
         message = "Invalid request"
-    elif path.startswith("/api/agents"):
+    elif path == "/chat" or path.startswith("/api/agents"):
         message = "Empty message"
     else:
         message = "fact must be text"
@@ -353,6 +358,93 @@ def delete_conversation(cid: str):
     if not flask_server.store.delete(cid):
         raise HTTPException(404, "Not found")
     return {"ok": True}
+
+
+# ---------- chat ----------
+# The reply is streamed. run_turn blocks, so it runs in a worker thread and
+# hands text over a queue. The conversation is saved when the stream ends,
+# including when the browser stops reading it (the Stop button).
+
+
+@app.post("/chat", response_class=PlainTextResponse)
+def chat(body: MainChatIn | None = None):
+    message = body.message if body is not None else None
+    if not isinstance(message, str) or not message.strip():
+        raise HTTPException(400, "Empty message")
+    user_input = message.strip()
+
+    store = flask_server.store
+    main_id = flask_server.MAIN_ID
+    cid = (body.conversation if body is not None else None) or main_id
+    conv = store.load(cid) if isinstance(cid, str) else None
+    if conv is None:
+        raise HTTPException(404, "Conversation not found")
+
+    messages = conv["messages"]
+    title = conv["title"]
+    if cid != main_id and title == NEW_TITLE:
+        title = user_input[:40]
+    registry = flask_server.web_registry
+    chat_session = flask_server.new_chat(messages, flask_server.current_prompt)
+
+    def generate():
+        chunks = queue.Queue()
+        outcome = {}
+
+        def worker():
+            try:
+                outcome["result"] = run_turn(
+                    chat_session, user_input, registry, on_text=chunks.put
+                )
+                flask_server.log_turn(outcome["result"], source="web")
+            except errors.APIError as e:
+                outcome["error"] = e
+            finally:
+                chunks.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        reply = ""
+        try:
+            while True:
+                text = chunks.get()
+                if text is None:
+                    break
+                reply += text
+                yield text
+            error = outcome.get("error")
+            if error is not None:
+                yield (
+                    f"\n[Nova couldn't reply: error {error.code}. "
+                    "Try again in a moment.]"
+                )
+                return
+        finally:
+            if reply:
+                messages.append({"role": "user", "text": user_input})
+                messages.append({"role": "model", "text": reply})
+                store.save(cid, title, messages)
+
+        result = outcome.get("result")
+        if result is None:
+            return
+        if not reply:
+            print(
+                "EMPTY REPLY: tool_calls =",
+                result.tool_calls,
+                "hit_round_limit =",
+                result.hit_round_limit,
+                flush=True,
+            )
+        if result.total_tokens:
+            info = {
+                "prompt": result.prompt_tokens,
+                "reply": result.reply_tokens,
+                "total": result.total_tokens,
+            }
+            yield "\x00" + json.dumps(info)
+
+    return StreamingResponse(generate(), media_type="text/plain")
 
 
 # ---------- tool approvals ----------

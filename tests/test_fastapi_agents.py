@@ -212,4 +212,3 @@ def test_the_agent_routes_are_listed_in_docs(monkeypatch, tmp_path):
         "/api/agents/{name}/chat",
     ):
         assert path in paths
-    assert "/chat" not in paths

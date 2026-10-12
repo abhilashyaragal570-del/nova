@@ -201,4 +201,3 @@ def test_the_workflow_routes_are_listed_in_docs(monkeypatch, tmp_path):
         "/workflows/{workflow_id}/resume",
     ):
         assert path in paths
-    assert "/chat" not in paths

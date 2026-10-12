@@ -45,9 +45,8 @@ def test_flask_usage_page_is_html(client):
 def test_memory_is_answered_by_fastapi_not_flask(client):
     paths = client.get("/openapi.json").json()["paths"]
     assert "/memory" in paths
-    # /chat and the /usage page are still Flask, so FastAPI doesn't list them.
+    # The /usage page is still Flask, so FastAPI doesn't list it.
     assert "/usage" not in paths
-    assert "/chat" not in paths
     res = client.post("/memory", json={"fact": "I like tea"}, auth=AUTH)
     assert res.status_code == 201
     # The test store was used, so FastAPI's route (not Flask's) handled it.
