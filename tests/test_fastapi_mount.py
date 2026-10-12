@@ -21,33 +21,32 @@ def test_the_chat_page_is_served_by_flask_through_fastapi(client):
 
 
 def test_flask_routes_still_need_the_password(client):
-    res = client.get("/api/agents")
+    res = client.get("/usage")
     assert res.status_code == 401
     assert "Basic" in res.headers["www-authenticate"]
 
 
 def test_flask_routes_work_with_the_password(client):
-    res = client.get("/api/agents", auth=AUTH)
+    res = client.get("/usage", auth=AUTH)
     assert res.status_code == 200
-    assert isinstance(res.json(), list)
 
 
 def test_flask_refuses_everything_when_no_password_is_set(client, monkeypatch):
     monkeypatch.delenv("NOVA_PASSWORD", raising=False)
-    res = client.get("/api/agents", auth=AUTH)
+    res = client.get("/usage", auth=AUTH)
     assert res.status_code == 503
 
 
-def test_flask_agents_list_has_names(client):
-    res = client.get("/api/agents", auth=AUTH)
-    assert all("name" in agent for agent in res.json())
+def test_flask_usage_page_is_html(client):
+    res = client.get("/usage", auth=AUTH)
+    assert "text/html" in res.headers["content-type"]
 
 
 def test_memory_is_answered_by_fastapi_not_flask(client):
     paths = client.get("/openapi.json").json()["paths"]
     assert "/memory" in paths
-    # /chat and /api/agents are still Flask, so FastAPI doesn't list them.
-    assert "/api/agents" not in paths
+    # /chat and the /usage page are still Flask, so FastAPI doesn't list them.
+    assert "/usage" not in paths
     assert "/chat" not in paths
     res = client.post("/memory", json={"fact": "I like tea"}, auth=AUTH)
     assert res.status_code == 201

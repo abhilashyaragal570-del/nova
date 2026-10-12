@@ -1,35 +1,44 @@
 """Nova's FastAPI app.
 
-The /memory, /documents, /system, /conversations, /approvals, /workflows and
-/api/usage routes are FastAPI. Every other route (/chat, /api/agents, the
+The /memory, /documents, /system, /conversations, /approvals, /workflows,
+/api/usage and /api/agents routes are FastAPI. Every other route (/chat, the
 /usage page and the chat page itself) is still the Flask app in web/server.py,
 mounted at the end so the FastAPI routes are matched first. Flask keeps doing
 its own password check for the routes it serves.
 
 State is shared with Flask by going through the web.server module at call
-time: its conversation store, its current personality, its approval broker and
-its workflow manager. Tests replace those, and the Flask /chat route reads the
-same ones.
+time: its conversation store, its current personality, its approval broker,
+its workflow manager and its tool registry. Tests replace those, and the Flask
+/chat route reads the same ones.
 
 FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
 Run it with: uvicorn web.fastapi_app:app --port 8001
 """
 import hmac
+import json
+import logging
 import os
+import queue
+import threading
 from typing import Annotated, Any
 
 from a2wsgi import WSGIMiddleware
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from google.genai import errors
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 
+from agents.definitions import AgentError, get_agent, list_agents
+from agents.factory import new_agent_chat
+from agents.history import clear_messages, load_messages, save_messages, to_contents
 from app.chat import fact_store
-from app.usage_log import get_log_path
+from app.tool_loop import run_turn
+from app.usage_log import get_log_path, log_turn
 from app.usage_report import read_all_entries, summarize
 from memory.conversation_store import NEW_TITLE
 from rag.embedder import EmbedError
@@ -39,8 +48,14 @@ from web import server as flask_server
 from web.workflow_runs import Busy
 from workflows.store import StoreError
 
+logger = logging.getLogger(__name__)
+
 # Room for one file plus the form overhead, the same limit Flask used.
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 100_000
+
+# Builds an agent's chat session. A module variable so tests can replace it
+# with a fake that never calls the real API.
+chat_factory = new_agent_chat
 
 security = HTTPBasic(auto_error=False)
 
@@ -119,6 +134,17 @@ class RunId(BaseModel):
     id: str
 
 
+class AgentInfo(BaseModel):
+    name: str
+    description: str
+    tools: list[str]
+
+
+class ChatIn(BaseModel):
+    # Any value is accepted on purpose: the route checks the message itself.
+    message: Any = None
+
+
 # Errors keep the {"error": "..."} shape that web/index.html reads.
 @app.exception_handler(HTTPException)
 async def http_error(request, exc: HTTPException):
@@ -137,6 +163,8 @@ async def bad_request(request, exc: RequestValidationError):
         message = "Empty goal"
     elif path.startswith("/approvals") or path.startswith("/workflows/"):
         message = "Invalid request"
+    elif path.startswith("/api/agents"):
+        message = "Empty message"
     else:
         message = "fact must be text"
     return JSONResponse({"error": message}, status_code=400)
@@ -413,6 +441,127 @@ def api_usage():
     summary = summarize(entries)
     summary["skipped"] = skipped
     return summary
+
+
+# ---------- specialized agents ----------
+# Each agent gets a restricted copy of flask_server.web_registry, so a tool that
+# needs approval still shows the same Approve / Deny card as chat.
+
+
+def _find_agent(name: str):
+    try:
+        return get_agent(name)
+    except AgentError:
+        return None
+
+
+@app.get("/api/agents", response_model=list[AgentInfo])
+def api_list_agents():
+    return [
+        {
+            "name": spec.name,
+            "description": spec.description,
+            "tools": sorted(spec.tools),
+        }
+        for spec in list_agents()
+    ]
+
+
+@app.get("/api/agents/{name}/history", response_model=dict[str, Any])
+def api_agent_history(name: str):
+    spec = _find_agent(name)
+    if spec is None:
+        raise HTTPException(404, "Unknown agent")
+    return {
+        "agent": spec.name,
+        "messages": load_messages(flask_server.store, spec),
+    }
+
+
+@app.delete("/api/agents/{name}/history", response_model=Ok)
+def api_agent_clear(name: str):
+    spec = _find_agent(name)
+    if spec is None:
+        raise HTTPException(404, "Unknown agent")
+    clear_messages(flask_server.store, spec)
+    return {"ok": True}
+
+
+@app.post("/api/agents/{name}/chat", response_class=PlainTextResponse)
+def api_agent_chat(name: str, body: ChatIn | None = None):
+    spec = _find_agent(name)
+    if spec is None:
+        raise HTTPException(404, "Unknown agent")
+    user_input = body.message if body is not None else None
+    if not isinstance(user_input, str) or not user_input.strip():
+        raise HTTPException(400, "Empty message")
+    user_input = user_input.strip()
+
+    store = flask_server.store
+    messages = load_messages(store, spec)
+    try:
+        chat_session, registry = chat_factory(
+            flask_server.llm_client,
+            flask_server.MODEL_NAME,
+            spec,
+            flask_server.web_registry,
+            to_contents(messages),
+        )
+    except AgentError as e:
+        raise HTTPException(500, str(e))
+
+    def generate():
+        # run_turn blocks, so it runs in a thread and hands text over a queue.
+        chunks = queue.Queue()
+        outcome = {}
+
+        def worker():
+            try:
+                outcome["result"] = run_turn(
+                    chat_session, user_input, registry, on_text=chunks.put
+                )
+                log_turn(outcome["result"], source=f"web-agent:{spec.name}")
+            except errors.APIError as e:
+                outcome["error"] = e
+            finally:
+                chunks.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        reply = ""
+        try:
+            while True:
+                text = chunks.get()
+                if text is None:
+                    break
+                reply += text
+                yield text
+            error = outcome.get("error")
+            if error is not None:
+                yield (
+                    f"\n[{spec.name} couldn't reply: error {error.code}. "
+                    "Try again in a moment.]"
+                )
+                return
+        finally:
+            if reply:
+                messages.append({"role": "user", "text": user_input})
+                messages.append({"role": "model", "text": reply})
+                try:
+                    save_messages(store, spec, messages)
+                except Exception:
+                    logger.exception("Could not save the %s conversation", spec.name)
+
+        result = outcome.get("result")
+        if result is not None and result.total_tokens:
+            info = {
+                "prompt": result.prompt_tokens,
+                "reply": result.reply_tokens,
+                "total": result.total_tokens,
+            }
+            yield "\x00" + json.dumps(info)
+
+    return StreamingResponse(generate(), media_type="text/plain")
 
 
 # Must stay last: a mount at "/" matches every path that no route above took.
