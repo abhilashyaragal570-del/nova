@@ -1,14 +1,17 @@
-"""FastAPI version of Nova's /memory routes.
+"""Nova's FastAPI app.
 
-This runs on its own for now: the rest of the app is still Flask
-(web/server.py). It uses the same fact_store, the same password rule and the
-same {"error": "..."} reply shape, so web/index.html would work with it as is.
-FastAPI also builds a /docs page that lists the routes and can try them.
+The three /memory routes are FastAPI. Every other route is still the Flask app
+in web/server.py, mounted at the end so the FastAPI routes are matched first.
+Flask keeps doing its own password check for the routes it serves.
+
+FastAPI also builds a /docs page that lists the FastAPI routes and can try them.
+Run it with: uvicorn web.fastapi_app:app --port 8001
 """
 import hmac
 import os
 from typing import Annotated
 
+from a2wsgi import WSGIMiddleware
 from fastapi import Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -17,6 +20,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 
 from app.chat import fact_store
+from web.server import app as flask_app
 
 security = HTTPBasic(auto_error=False)
 
@@ -65,8 +69,8 @@ async def http_error(request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def bad_request(request, exc: RequestValidationError):
-    # Only /memory has a request body so far. Flask answered a missing or
-    # non-text fact with this same message and a 400.
+    # Only /memory has a request body in FastAPI so far. Flask answered a
+    # missing or non-text fact with this same message and a 400.
     return JSONResponse({"error": "fact must be text"}, status_code=400)
 
 
@@ -94,3 +98,7 @@ def delete_memory(fact_id: str):
     if not removed:
         raise HTTPException(404, "Not found")
     return {"ok": True}
+
+
+# Must stay last: a mount at "/" matches every path that no route above took.
+app.mount("/", WSGIMiddleware(flask_app))
