@@ -15,6 +15,11 @@ slowest) use the duration minus that wait, so they show how long Nova itself
 took. Older lines and turns that were not timed (such as the terminal chat) are
 left out of the latency numbers but still counted everywhere else.
 
+Workflow runs are logged with source "workflow" (see app/workflow_log.py).
+They have their own total, workflow_seconds, so they never mix into the chat
+latency numbers. The Workflows section counts runs by final status and shows
+run times the same way as chat: the approval wait is left out.
+
 Usage: python -m app.usage_report
 """
 import json
@@ -105,6 +110,13 @@ def _seconds(value) -> float | None:
     return float(value)
 
 
+def _count(value) -> int:
+    """A usable whole number for a counter field, or 0 for anything else."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
 def _timed_turns(entries: list) -> list:
     """(active_seconds, approval_wait_seconds) for each usable timed turn.
 
@@ -152,6 +164,58 @@ def summarize_latency(entries: list) -> dict | None:
     }
 
 
+def summarize_workflows(entries: list) -> dict | None:
+    """Numbers over the workflow runs, or None when there are none.
+
+    A workflow run is a log line with source "workflow". The times come from
+    workflow_seconds minus the approval wait, never below zero. Runs without a
+    usable workflow_seconds still count in runs, statuses, tasks and tool
+    calls, but are left out of the time numbers (timed_runs says how many
+    were used). The time fields are None when no run was timed.
+    """
+    runs = [e for e in entries if e.get("source") == "workflow"]
+    if not runs:
+        return None
+    statuses: Counter = Counter()
+    tools: Counter = Counter()
+    tasks = 0
+    tool_calls = 0
+    active = []
+    waits = []
+    for run in runs:
+        status = run.get("status")
+        statuses[status if isinstance(status, str) and status else "unknown"] += 1
+        tools.update(t for t in (run.get("tools") or []) if isinstance(t, str))
+        tasks += _count(run.get("tasks"))
+        tool_calls += _count(run.get("tool_calls"))
+        duration = _seconds(run.get("workflow_seconds"))
+        if duration is None:
+            continue
+        wait = _seconds(run.get("approval_wait_seconds")) or 0.0
+        active.append(max(0.0, duration - wait))
+        waits.append(wait)
+    result = {
+        "runs": len(runs),
+        "statuses": dict(statuses),
+        "tasks": tasks,
+        "tool_calls": tool_calls,
+        "tools": dict(tools),
+        "timed_runs": len(active),
+        "average_seconds": None,
+        "median_seconds": None,
+        "max_seconds": None,
+        "approval_wait_seconds": 0.0,
+        "runs_with_approval": 0,
+    }
+    if active:
+        result["average_seconds"] = round(sum(active) / len(active), 3)
+        result["median_seconds"] = round(median(active), 3)
+        result["max_seconds"] = round(max(active), 3)
+        result["approval_wait_seconds"] = round(sum(waits), 3)
+        result["runs_with_approval"] = sum(1 for w in waits if w > 0)
+    return result
+
+
 def format_latency(latency: dict) -> str:
     lines = [
         f"Latency ({latency['turns']} timed turns):",
@@ -166,6 +230,37 @@ def format_latency(latency: dict) -> str:
             f"  (left out: {latency.get('approval_wait_seconds', 0):.2f}s "
             f"spent waiting for approval in {count} turns)"
         )
+    return "\n".join(lines)
+
+
+def format_workflows(workflows: dict) -> str:
+    lines = [
+        f"Workflows ({workflows['runs']} runs):",
+        f"  tasks        {workflows['tasks']}",
+        f"  tool calls   {workflows['tool_calls']}",
+    ]
+    statuses = sorted(workflows["statuses"].items(), key=lambda kv: (-kv[1], kv[0]))
+    if statuses:
+        width = max(len(name) for name, _ in statuses)
+        lines.append("  by status:")
+        for name, count in statuses:
+            lines.append(f"    {name:<{width}}  {count}")
+    if workflows["timed_runs"]:
+        lines.extend(
+            [
+                f"  average  {workflows['average_seconds']:.2f}s",
+                f"  median   {workflows['median_seconds']:.2f}s",
+                f"  slowest  {workflows['max_seconds']:.2f}s",
+            ]
+        )
+        count = workflows.get("runs_with_approval", 0)
+        if count:
+            lines.append(
+                f"  (left out: {workflows.get('approval_wait_seconds', 0):.2f}s "
+                f"spent waiting for approval in {count} runs)"
+            )
+    else:
+        lines.append("  (no timed runs)")
     return "\n".join(lines)
 
 
@@ -220,6 +315,10 @@ def main() -> int:
     if latency:
         print("")
         print(format_latency(latency))
+    workflows = summarize_workflows(entries)
+    if workflows:
+        print("")
+        print(format_workflows(workflows))
     return 0
 
 

@@ -27,6 +27,10 @@
 <h2>Latency</h2>
 <div class="stats" id="latency"></div>
 <p class="muted" id="latency-note"></p>
+<h2>Workflows</h2>
+<div class="stats" id="workflows"></div>
+<p class="muted" id="workflows-note"></p>
+<table id="workflow-statuses"></table>
 <h2>Tools used</h2>
 <table id="tools"></table>
 <h2>By source</h2>
@@ -92,6 +96,42 @@ function showLatency(latency) {
   }
   note.textContent = text;
 }
+function showWorkflows(workflows) {
+  const box = document.getElementById("workflows");
+  const note = document.getElementById("workflows-note");
+  if (!workflows) {
+    box.replaceChildren();
+    document.getElementById("workflow-statuses").replaceChildren();
+    note.textContent = "No workflow runs yet. Run a workflow from the chat page and refresh.";
+    return;
+  }
+  const stats = [
+    stat("runs", workflows.runs.toLocaleString()),
+    stat("tasks", workflows.tasks.toLocaleString()),
+    stat("tool calls", workflows.tool_calls.toLocaleString())
+  ];
+  if (workflows.timed_runs) {
+    stats.push(
+      stat("average", seconds(workflows.average_seconds)),
+      stat("median", seconds(workflows.median_seconds)),
+      stat("slowest", seconds(workflows.max_seconds))
+    );
+  }
+  box.replaceChildren(...stats);
+  let text = workflows.timed_runs
+    ? "Times are based on " + workflows.timed_runs.toLocaleString() + " timed run(s)."
+    : "No run has a recorded time yet.";
+  if (workflows.runs_with_approval) {
+    text += " Time spent waiting for your Approve or Deny click (" +
+      seconds(workflows.approval_wait_seconds) + " over " +
+      workflows.runs_with_approval.toLocaleString() + " run(s)) is not counted.";
+  }
+  note.textContent = text;
+  const statuses = Object.entries(workflows.statuses)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => [name, count.toLocaleString()]);
+  fillTable("workflow-statuses", ["Final status", "Runs"], statuses);
+}
 async function load() {
   const res = await fetch("/api/usage");
   if (!res.ok) {
@@ -109,6 +149,7 @@ async function load() {
   document.getElementById("skipped").textContent =
     d.skipped ? d.skipped + " unreadable log line(s) skipped." : "";
   showLatency(d.latency);
+  showWorkflows(d.workflows);
   const tools = Object.entries(d.tools)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name, count]) => [name, count.toLocaleString()]);

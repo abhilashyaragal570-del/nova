@@ -44,7 +44,12 @@ from agents.history import clear_messages, load_messages, save_messages, to_cont
 from app.chat import fact_store
 from app.tool_loop import run_turn
 from app.usage_log import get_log_path, log_turn
-from app.usage_report import read_all_entries, summarize, summarize_latency
+from app.usage_report import (
+    read_all_entries,
+    summarize,
+    summarize_latency,
+    summarize_workflows,
+)
 from memory.conversation_store import NEW_TITLE
 from rag.embedder import EmbedError
 from rag.index import RagIndexError
@@ -598,6 +603,8 @@ def api_usage():
     summary["skipped"] = skipped
     # None when no turn has been timed yet.
     summary["latency"] = summarize_latency(entries)
+    # None when no workflow has run yet.
+    summary["workflows"] = summarize_workflows(entries)
     return summary
 
 
