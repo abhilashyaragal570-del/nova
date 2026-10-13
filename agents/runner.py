@@ -7,6 +7,7 @@ from google.genai import errors
 
 from agents.definitions import AgentSpec
 from app.tool_loop import run_turn
+from app.turn_clock import end_turn, start_turn
 from app.usage_log import log_turn
 
 
@@ -48,13 +49,20 @@ def chat_loop(
         if not user_input:
             continue
         write(f"{name}: ")
+        started = start_turn()
         try:
             result = run_turn(chat, user_input, registry, on_text=write)
         except errors.APIError as e:
             write(f"\n[{name} couldn't reply: error {e.code}. Try again in a moment.]\n\n")
             continue
+        elapsed, waited = end_turn(started)
         write("\n")
-        log_turn(result, source=f"terminal-agent:{name}")
+        log_turn(
+            result,
+            source=f"terminal-agent:{name}",
+            duration_seconds=elapsed,
+            approval_wait_seconds=waited,
+        )
         if result.tool_calls:
             write(f"[used {result.tool_calls} tool call(s)]\n")
         if result.hit_round_limit:

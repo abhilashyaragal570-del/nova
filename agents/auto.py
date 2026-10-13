@@ -16,6 +16,7 @@ from google.genai import errors
 from agents.definitions import AGENTS, AgentSpec
 from agents.router import route
 from app.tool_loop import run_turn
+from app.turn_clock import end_turn, start_turn
 from app.usage_log import log_turn
 
 DEFAULT_AGENT = "nova"
@@ -137,6 +138,7 @@ def auto_loop(make_session, save=None, read=input, write=_echo, classify=None) -
         session = sessions[name]
 
         write(f"[{name}] ")
+        started = start_turn()
         try:
             result = run_turn(
                 session.chat, user_input, session.registry, on_text=write
@@ -144,8 +146,14 @@ def auto_loop(make_session, save=None, read=input, write=_echo, classify=None) -
         except errors.APIError as e:
             write(f"\n[{name} couldn't reply: error {e.code}. Try again in a moment.]\n\n")
             continue
+        elapsed, waited = end_turn(started)
         write("\n")
-        log_turn(result, source=f"auto:{name}")
+        log_turn(
+            result,
+            source=f"auto:{name}",
+            duration_seconds=elapsed,
+            approval_wait_seconds=waited,
+        )
         if result.tool_calls:
             write(f"[used {result.tool_calls} tool call(s)]\n")
         if result.hit_round_limit:

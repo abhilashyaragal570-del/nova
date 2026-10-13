@@ -1,9 +1,13 @@
 import time
 from google import genai
 from google.genai import errors
+from app.net import build_http_options
 from config import settings
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
+client = genai.Client(
+    api_key=settings.GEMINI_API_KEY,
+    http_options=build_http_options(),
+)
 
 MODEL = settings.GEMINI_MODEL
 MAX_RETRIES = 5
