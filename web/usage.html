@@ -88,7 +88,7 @@ function showLatency(latency) {
     stat("95th percentile", seconds(latency.p95_seconds)),
     stat("slowest", seconds(latency.max_seconds))
   );
-  let text = "Based on " + latency.turns.toLocaleString() + " timed turn(s). Turns from before timing was added, and the terminal chat, are left out.";
+  let text = "Based on " + latency.turns.toLocaleString() + " timed turn(s). Turns from before timing was added are left out.";
   if (latency.turns_with_approval) {
     text += " Time spent waiting for your Approve or Deny click (" +
       seconds(latency.approval_wait_seconds) + " over " +

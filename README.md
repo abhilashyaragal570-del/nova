@@ -454,7 +454,7 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 Every chat turn (terminal chat, web chat, agents and auto mode) appends one line to `logs/tool_usage.jsonl`. Each line records the time, the source, which tools ran, the tool call count and token usage. It never records your messages or Nova's replies.
 
-Turns from the web app and the web agents are also timed. Their line has `duration_seconds`, and `approval_wait_seconds` when the turn stopped to wait for your Approve or Deny click. The terminal chat is not timed.
+The terminal chat, the web app and the web agents also time their turns. Their line has `duration_seconds`, and `approval_wait_seconds` when the turn stopped to wait for your approval (a click in the browser, or `y` or `n` at the terminal prompt). Older lines, and any turn without a duration, are left out of the latency numbers.
 
 Every finished workflow run adds one line with the source `workflow`. It records the final status, the number of tasks, the tool calls, how long the run took (`workflow_seconds`) and how much of that was spent waiting for approval. It never records the goal text or any task arguments. Workflow runs use their own total, so a long run never skews the chat latency numbers.
 
@@ -464,7 +464,7 @@ Set `TOOL_LOG_PATH` in the environment or `.env` to write the log somewhere else
 
 To see the totals, run `python -m app.usage_report` in the terminal, or click **Usage** in the web page header.
 
-- **Latency:** the average, median, 95th percentile and slowest reply time over the timed turns. The time spent waiting for your approval click is subtracted, so the numbers show how long Nova itself took. Older lines and untimed turns are left out of the latency numbers but still counted everywhere else.
+- **Latency:** the average, median, 95th percentile and slowest reply time over the timed turns. The time spent waiting for your approval is subtracted, so the numbers show how long Nova itself took. Turns without a duration are left out of the latency numbers but still counted everywhere else.
 - **Workflows:** the number of runs, tasks and tool calls, a table of final statuses, and the average, median and slowest run time, with the approval wait left out the same way. The section only appears when at least one workflow has run.
 
 To check that Nova picks the right tools, run:

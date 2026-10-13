@@ -10,10 +10,11 @@ exists, so the report covers at most the last two files.
 
 Turns that were timed also have a duration_seconds value, and some have an
 approval_wait_seconds value: the time spent waiting for the person to click
-Approve or Deny. The latency numbers (average, median, 95th percentile and
-slowest) use the duration minus that wait, so they show how long Nova itself
-took. Older lines and turns that were not timed (such as the terminal chat) are
-left out of the latency numbers but still counted everywhere else.
+Approve or Deny (or to answer y/N in the terminal). The latency numbers
+(average, median, 95th percentile and slowest) use the duration minus that
+wait, so they show how long Nova itself took. Older lines and any turn without
+a usable duration_seconds are left out of the latency numbers but still
+counted everywhere else.
 
 Workflow runs are logged with source "workflow" (see app/workflow_log.py).
 They have their own total, workflow_seconds, so they never mix into the chat
