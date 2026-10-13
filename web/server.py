@@ -51,7 +51,8 @@ store = create_store()
 app = Flask(__name__)
 
 # Tools that need approval pause until the browser answers Approve or Deny
-# (see web/approvals.py). No answer within the timeout counts as a denial.
+# (see web/approvals.py). No answer within the timeout is reported as "timed
+# out" and the tool does not run.
 approvals = ApprovalBroker()
 web_registry = ToolRegistry(policy=ToolPolicy(confirm=approvals.confirm))
 for _tool in (
@@ -70,6 +71,7 @@ for _tool in (
     web_registry.register(_tool)
 
 # Workflows share web_registry, so a write step shows the same Approve / Deny card as chat.
+# record=log_workflow writes one usage-log line per finished run.
 WORKFLOW_DEADLINE_SECONDS = 600.0
 workflow_manager = WorkflowManager(
     make_planner=lambda write_tools: make_planner(
@@ -82,10 +84,9 @@ workflow_manager = WorkflowManager(
         model=model,
         deadline_seconds=WORKFLOW_DEADLINE_SECONDS,
     ),
-        make_store=create_workflow_store,
+    make_store=create_workflow_store,
     record=log_workflow,
 )
-
 
 # The document index is created on first use, and the embedder on each
 # upload. Tests replace these two functions with fakes.
