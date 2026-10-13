@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, a usage and latency report, and optional PostgreSQL storage.
 
 ## Live demo
 
@@ -37,9 +37,25 @@ flowchart LR
     TOOLS --> LLM
     SRV --> DB[("Storage<br/>local files or PostgreSQL")]
     TOOLS --> DB
+    AG --> LOG[("Usage log<br/>logs/tool_usage.jsonl")]
+    WF --> LOG
+    LOG --> REP["Usage report<br/>terminal and /usage page"]
 ```
 
 Every tool call goes through one policy layer. Agents only see the tools they are given, and anything that changes things waits for your approval.
+
+## Design decisions
+
+- **One policy layer for every tool call.** Chat, specialized agents and workflows all call tools through the same registry and policy. Read-only tools run freely, tools that change things need approval, every call has a timeout, and the web and API tools refuse unsafe URLs. There is no second path that skips the checks.
+- **Approval before anything changes.** Writing a file, calling an API, and saving or forgetting a memory fact all pause until you click Approve (or answer `y` in the terminal). Only the real JSON value `true` approves, so a malformed request can never approve something. An unanswered request is reported as timed out and the tool does not run.
+- **Workflows share the chat tool registry.** A workflow step that writes a file shows the same Approve / Deny card as chat. A workflow is planned, reviewed and approved before anything is saved or run, and tools that change things are off unless you allow them.
+- **Agents get a restricted copy of the registry.** The notes agent cannot search the web or write files because those tools are not there for it to call. This is enforced by what the agent is given, not by asking the model to behave.
+- **The approval wait is left out of latency.** A turn can sit waiting for a human click. The server counts that wait separately and the report subtracts it, so the latency numbers show how long Nova itself took. Workflow runs keep their own total (`workflow_seconds`), so one long workflow never skews the chat numbers.
+- **Logging never breaks a run.** A failed log write is reported and swallowed. The log records which tools ran, counts and timing, but never your messages, Nova's replies, a workflow goal or tool arguments.
+- **One password check for everything.** FastAPI checks the password on every route, including the API docs. The two pages that Flask still serves are mounted into the same app, and Flask checks the password too.
+- **One workflow at a time, one server process.** The workflow that is planning or running lives in the server's memory, so the app is run as a single uvicorn process. Its progress is saved, so an interrupted run can be resumed.
+- **Storage behind one interface.** Chats, workflow runs and indexed documents use local files by default and PostgreSQL when `DATABASE_URL` is set, with no change to the rest of the app.
+- **Tests never call Gemini.** The suite uses fake models, so it is fast, free and runs on every push.
 
 ## Features
 
@@ -54,6 +70,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Safety layer around tools: read-only flags, confirmation before anything that changes things, timeouts and unsafe-URL blocking
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
+- Usage page: tool counts, tokens, reply latency (average, median, 95th percentile, slowest) and a Workflows section with run counts, final statuses and run times
 - Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
 - A `Dockerfile` and a Docker Compose file to run the web app, with PostgreSQL if you want it (see Docker below)
 - Token usage shown after every reply
@@ -69,7 +86,7 @@ A five-minute tour of the live app, in this order:
 3. **Approval card.** Ask Nova to write a file. An Approve / Deny card appears, and nothing is written until you click **Approve**.
 4. **Memory.** Say "remember that I prefer short answers", approve it, then open the **Memory** panel to see the saved fact.
 5. **Workflow.** Click **Workflows**, type a goal, click **Plan**, review the plan, then **Run plan** and watch each step.
-6. **Usage and API docs.** Click **Usage** for the tool usage report. Then open `/docs` to see every API route, behind the same password. **Try it out** works once you are logged in.
+6. **Usage and API docs.** Click **Usage** for the tool usage, latency and workflow report. Then open `/docs` to see every API route, behind the same password. **Try it out** works once you are logged in.
 
 Under the hood: one FastAPI app with a single password check on every route, one policy layer for every tool call, and automated tests that run on every push.
 
@@ -126,7 +143,7 @@ Type `exit` to quit, `/clear` to forget the conversation, `/history` to see rece
 
 Open http://127.0.0.1:8000 in your browser. The browser asks for a login. Use any username and your `NOVA_PASSWORD`.
 
-When Nova wants to run a tool that changes things, such as writing a file or calling an API, a card appears above the message box. Nothing runs until you click **Approve**, and **Deny** cancels it. If you don't answer within 60 seconds, it counts as a denial.
+When Nova wants to run a tool that changes things, such as writing a file or calling an API, a card appears above the message box. Nothing runs until you click **Approve**, and **Deny** cancels it. If you don't answer within 60 seconds, the request is reported as timed out and the tool does not run.
 
 The **Memory** button in the header opens the memory panel (see Long-term memory below), the **Documents** button opens the document panel (see Documents below), and the **Workflows** button opens the workflow panel (see Workflows below).
 
@@ -139,6 +156,8 @@ The web app's API is a FastAPI app in `web/fastapi_app.py`. Start it with:
 Open http://127.0.0.1:8000 and log in with the password from `NOVA_PASSWORD`. Open http://127.0.0.1:8000/docs for a page that lists every API route and can try them. `/docs`, `/redoc` and `/openapi.json` sit behind the same password as everything else, so nothing about the API is visible without logging in. The browser asks for the login once and then remembers it, so **Try it out** works.
 
 `web/server.py` holds the state the routes share (conversations, tools, approvals, workflows, personality, document index) and a small Flask app that serves only the chat page and the usage page. FastAPI mounts that Flask app, so both pages use the same password.
+
+Every response carries an `X-Request-ID` header, and each request writes one JSON log line (see `web/observability.py`), so a request can be traced through the logs.
 
 ## Tools
 
@@ -250,6 +269,7 @@ Click **Workflows**, type a goal and click **Plan**. Review the plan, then click
 - Only one workflow can plan or run at a time.
 - **Cancel** stops the workflow after the current step.
 - A workflow stops after 10 minutes.
+- Every finished run adds one line to the usage log, so it shows up in the Workflows section of the usage page (see Tool usage log below).
 
 ## Specialized agents
 
@@ -431,11 +451,18 @@ Tests run on every push with GitHub Actions. They use fake models, so they never
 
 Every chat turn (terminal chat, web chat, agents and auto mode) appends one line to `logs/tool_usage.jsonl`. Each line records the time, the source, which tools ran, the tool call count and token usage. It never records your messages or Nova's replies.
 
+Turns from the web app and the web agents are also timed. Their line has `duration_seconds`, and `approval_wait_seconds` when the turn stopped to wait for your Approve or Deny click. The terminal chat is not timed.
+
+Every finished workflow run adds one line with the source `workflow`. It records the final status, the number of tasks, the tool calls, how long the run took (`workflow_seconds`) and how much of that was spent waiting for approval. It never records the goal text or any task arguments. Workflow runs use their own total, so a long run never skews the chat latency numbers.
+
 When the log reaches 1 MB, it is moved to `tool_usage.jsonl.1` and a fresh log is started. Only one old file is kept, so the log never takes much more than 2 MB. The usage report reads the older file as well as the current one, so its totals don't drop to zero after a rotation. It covers at most the last two files, so once the log has been rotated again, the oldest turns are no longer counted.
 
 Set `TOOL_LOG_PATH` in the environment or `.env` to write the log somewhere else. The `logs/` folder is ignored by git.
 
 To see the totals, run `python -m app.usage_report` in the terminal, or click **Usage** in the web page header.
+
+- **Latency:** the average, median, 95th percentile and slowest reply time over the timed turns. The time spent waiting for your approval click is subtracted, so the numbers show how long Nova itself took. Older lines and untimed turns are left out of the latency numbers but still counted everywhere else.
+- **Workflows:** the number of runs, tasks and tool calls, a table of final statuses, and the average, median and slowest run time, with the approval wait left out the same way. The section only appears when at least one workflow has run.
 
 To check that Nova picks the right tools, run:
 
@@ -449,7 +476,7 @@ If the API answers with a rate limit error (429), the runner waits 60 seconds an
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, reply latency numbers that leave out the approval wait, workflow runs in the usage log and on the usage page, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), a FastAPI backend, password-protected API docs, and a live demo on Render.
 
 Planned next: test the Docker image and the Compose file on macOS or Linux.
 
