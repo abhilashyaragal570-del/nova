@@ -25,3 +25,4 @@ docs/
 requirements-dev.txt
 Dockerfile
 .dockerignore
+state/

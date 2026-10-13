@@ -34,6 +34,23 @@ def test_dockerfile_installs_requirements_before_copying_the_code():
     assert text.index("COPY requirements.txt") < text.index("COPY . .")
 
 
+def test_dockerfile_sets_up_the_state_folder():
+    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "NOVA_STATE_DIR=/app/state" in text
+    # The folder is created before chown, so the normal user owns it and a
+    # new named volume copies that ownership.
+    mkdir_line = next(line for line in text.splitlines() if "mkdir -p" in line)
+    assert " state" in mkdir_line
+    assert text.index("mkdir -p") < text.index("chown -R nova:nova /app")
+
+
+def test_compose_gives_the_state_folder_its_own_volume():
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "- nova_state:/app/state" in text
+    assert "NOVA_STATE_DIR: /app/state" in text
+    assert "\n  nova_state:" in text
+
+
 def test_dockerignore_keeps_secrets_and_personal_data_out_of_the_image():
     lines = read_lines(".dockerignore")
     for entry in (
@@ -46,6 +63,7 @@ def test_dockerignore_keeps_secrets_and_personal_data_out_of_the_image():
         "workflow_data/",
         "rag_data/",
         "memory_data/",
+        "state/",
         "logs/",
     ):
         assert entry in lines, f".dockerignore is missing {entry}"
@@ -64,5 +82,6 @@ def test_gitignore_lists_each_private_path_on_its_own_line():
         "workflow_data/",
         "rag_data/",
         "memory_data/",
+        "state/",
     ):
         assert entry in lines, f".gitignore is missing {entry}"

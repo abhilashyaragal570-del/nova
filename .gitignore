@@ -18,3 +18,4 @@ rag_data/
 evals/last_results.json
 
 memory_data/
+state/

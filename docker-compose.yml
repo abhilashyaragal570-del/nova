@@ -25,6 +25,9 @@ services:
     environment:
       # Overrides DATABASE_URL from .env. The host is the service name, db.
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/nova
+      # Set here so a line in .env can't override it. history.json and
+      # personality.json are saved in this folder, which has its own volume.
+      NOVA_STATE_DIR: /app/state
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -34,6 +37,7 @@ services:
       - nova_memory:/app/memory_data
       - nova_logs:/app/logs
       - nova_workspace:/app/workspace
+      - nova_state:/app/state
 
 volumes:
   pgdata:
@@ -43,3 +47,4 @@ volumes:
   nova_memory:
   nova_logs:
   nova_workspace:
+  nova_state:

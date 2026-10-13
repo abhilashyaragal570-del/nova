@@ -2,8 +2,11 @@
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
+# NOVA_STATE_DIR puts history.json and personality.json in /app/state, so one
+# volume can keep both.
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    NOVA_STATE_DIR=/app/state
 
 WORKDIR /app
 
@@ -16,7 +19,7 @@ COPY . .
 # Run as a normal user. These are the folders Nova writes to, so a volume can
 # be mounted on any of them.
 RUN useradd --create-home --uid 1000 nova \
-    && mkdir -p conversations workflow_data rag_data memory_data workspace logs \
+    && mkdir -p conversations workflow_data rag_data memory_data workspace logs state \
     && chown -R nova:nova /app
 USER nova
 

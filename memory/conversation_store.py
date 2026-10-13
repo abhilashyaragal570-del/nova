@@ -6,6 +6,8 @@ can change (files now, PostgreSQL later) without touching them.
 
 Two kinds of chat exist:
   - "main": a list of messages in history_file (shared with the terminal chat).
+    By default that is history.json in the folder named by NOVA_STATE_DIR, or
+    in the current folder when the variable is not set.
   - every other chat: one JSON file <id>.json in conv_dir, holding a title
     and a list of messages.
 """
@@ -14,6 +16,8 @@ import re
 import uuid
 from pathlib import Path
 
+from memory.state_dir import state_path
+
 MAIN_ID = "main"
 MAIN_TITLE = "Main chat"
 NEW_TITLE = "New chat"
@@ -21,9 +25,12 @@ _ID_PATTERN = re.compile(r"[0-9a-f]{12}")
 
 
 class ConversationStore:
-    def __init__(self, conv_dir="conversations", history_file="history.json"):
+    def __init__(self, conv_dir="conversations", history_file=None):
         self.conv_dir = Path(conv_dir)
-        self.history_file = Path(history_file)
+        if history_file is None:
+            self.history_file = state_path("history.json")
+        else:
+            self.history_file = Path(history_file)
 
     @staticmethod
     def is_valid_id(cid):
@@ -52,6 +59,7 @@ class ConversationStore:
         if not self.is_valid_id(cid):
             raise ValueError(f"invalid conversation id: {cid!r}")
         if cid == MAIN_ID:
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
             self.history_file.write_text(
                 json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
             )

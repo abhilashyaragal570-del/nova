@@ -129,6 +129,7 @@ Under the hood: one FastAPI app with a single password check on every route, one
    - `NOVA_EMBED_MODEL` is optional. Leave it empty to use `gemini-embedding-001`. See Documents below.
    - `DATABASE_URL` is optional. Leave it empty to save chats, workflow runs and indexed documents as local files. Set it to a PostgreSQL connection string to save them in a database. On your own computer, use a database's external URL; a host's internal URL only works from inside that host.
    - `POSTGRES_PASSWORD` is only used by Docker Compose (see Docker Compose below). Leave it empty otherwise.
+   - `NOVA_STATE_DIR` is optional and is not in the file above. Leave it unset and `history.json` and `personality.json` stay in the folder you start Nova from. Set it to a folder name to keep both files there instead. The Docker image sets it to `/app/state` itself, so don't put it in `.env` when you use Docker.
    - Tracing has two more optional variables, `NOVA_TRACING` and `NOVA_TRACE_FILE`. See Tracing below.
    - Never commit your `.env` file.
 
@@ -336,7 +337,7 @@ The agent routes sit behind the same password as the rest of the app.
 
 Conversations, workflow runs and indexed documents are saved through small interfaces, so the storage can change without touching the rest of the app:
 
-- **Files (default):** the main chat in `history.json`, other chats in `conversations/`, workflow runs and their event logs in `workflow_data/`, indexed documents in `rag_data/`.
+- **Files (default):** the main chat in `history.json`, other chats in `conversations/`, workflow runs and their event logs in `workflow_data/`, indexed documents in `rag_data/`. `history.json` and the edited system prompt, `personality.json`, sit in the folder named by `NOVA_STATE_DIR`, or in the folder you start Nova from when that variable is not set.
 - **PostgreSQL:** set `DATABASE_URL`. Nova creates its tables on first use: `conversations`, `workflow_runs`, `workflow_events` and `rag_chunks`.
 
 Agent conversations use the same conversation storage as other chats, each under its own fixed id, so they never touch the main chat.
@@ -374,14 +375,14 @@ Build the image from the repo folder:
 
 Run it. Your settings come from your `.env` file at run time and are never copied into the image:
 
-        docker run --rm -p 8000:8000 --env-file .env -v nova_conversations:/app/conversations -v nova_workflows:/app/workflow_data -v nova_documents:/app/rag_data -v nova_memory:/app/memory_data -v nova_logs:/app/logs -v nova_workspace:/app/workspace nova
+        docker run --rm -p 8000:8000 --env-file .env -v nova_conversations:/app/conversations -v nova_workflows:/app/workflow_data -v nova_documents:/app/rag_data -v nova_memory:/app/memory_data -v nova_logs:/app/logs -v nova_workspace:/app/workspace -v nova_state:/app/state nova
 
 Then open http://127.0.0.1:8000 and log in with your `NOVA_PASSWORD`.
 
 - `--env-file` takes each line as it is, so don't put quotes around values in `.env` when you use it.
 - `localhost` in `DATABASE_URL` does not work inside a container, because there it means the container itself. The app then stops at start-up with a "Connection refused" error. For a PostgreSQL database on your own computer, use `host.docker.internal` instead of `localhost`. To use local files instead, add `-e DATABASE_URL=` to the `docker run` command, after `--env-file .env`. It overrides the value in `.env` for that run only.
 - Each `-v name:/app/folder` option is a named Docker volume. It keeps that folder's files when the container is removed and started again. Without it, everything the container wrote is lost when it stops.
-- The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log and the `workspace/` folder. The main chat (`history.json`) and the edited system prompt (`personality.json`) are not covered, so they are lost when the container is removed. Set `DATABASE_URL` to keep chats in PostgreSQL instead.
+- The volumes cover other chats, workflow runs, indexed documents, saved memory facts, the usage log, the `workspace/` folder and the `state/` folder. The image sets `NOVA_STATE_DIR=/app/state`, so the main chat (`history.json`) and the edited system prompt (`personality.json`) are saved in that folder and are kept too. With `DATABASE_URL` set, chats are kept in PostgreSQL, and `personality.json` is still saved in `state/`. Don't put `NOVA_STATE_DIR` in `.env`: `--env-file` would override the image's value.
 - The server listens on port 8000 inside the container, or on the `PORT` variable if the host sets one.
 - Keep it to one process. A running workflow lives in the server's memory.
 
@@ -441,7 +442,7 @@ The password `novapass` is only for this throwaway test. Use a real password for
 
 ## Notes
 
-`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub. The same paths are listed in `.dockerignore`, so they are never copied into a Docker image either.
+`.env`, `history.json`, `personality.json`, `conversations/`, `workflow_data/`, `rag_data/`, `memory_data/`, `state/` and `workspace/` are listed in `.gitignore`, so your keys, conversations, documents and saved facts are never pushed to GitHub. The same paths are listed in `.dockerignore`, so they are never copied into a Docker image either.
 
 ## Tests
 

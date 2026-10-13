@@ -26,6 +26,7 @@ from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.usage_log import log_turn
 from app.workflow_log import log_workflow
 from memory.conversation_store import MAIN_ID
+from memory.state_dir import state_path
 from memory.store_factory import create_store
 from rag.embedder import GeminiEmbedder
 from rag.index_factory import create_document_index
@@ -44,7 +45,9 @@ from workflows.gemini_planner import make_planner
 from workflows.store_factory import create_workflow_store
 
 WEB_DIR = Path(__file__).parent
-PROMPT_FILE = Path("personality.json")
+# personality.json sits in the folder named by NOVA_STATE_DIR, or in the
+# current folder when that variable is not set.
+PROMPT_FILE = state_path("personality.json")
 store = create_store()
 
 # Only the two pages are Flask now: / and /usage.
@@ -131,6 +134,7 @@ def load_prompt():
 
 
 def save_prompt(prompt):
+    PROMPT_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROMPT_FILE.write_text(
         json.dumps({"prompt": prompt}, ensure_ascii=False), encoding="utf-8"
     )
