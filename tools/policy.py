@@ -2,6 +2,10 @@
 
 Fails closed: anything unclear is refused. The policy never runs tools;
 it only answers "allowed?" and gives a reason when the answer is no.
+
+A confirm function answers True to approve and anything else to refuse. It
+may also raise ConfirmTimeout when nobody answered in time, so the reason
+given can say "timed out" instead of "declined".
 """
 import logging
 from dataclasses import dataclass, field
@@ -13,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 # (tool_name, arguments) -> True to approve. Anything else means "no".
 ConfirmFn = Callable[[str, dict[str, Any]], bool]
+
+
+class ConfirmTimeout(Exception):
+    """Raised by a confirm function when nobody answered in time."""
 
 
 @dataclass
@@ -34,6 +42,8 @@ class ToolPolicy:
                 return f"Tool '{tool.name}' needs user confirmation, but none is configured"
             try:
                 approved = self.confirm(tool.name, arguments)
+            except ConfirmTimeout:
+                return f"Approval for '{tool.name}' timed out, so it was not run"
             except Exception:
                 logger.exception("Confirmation handler failed for %s", tool.name)
                 return f"Confirmation for '{tool.name}' failed, so it was not run"

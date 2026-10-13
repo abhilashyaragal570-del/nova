@@ -1,14 +1,20 @@
 import threading
 import time
 
+from tools.policy import ConfirmTimeout
 from web.approvals import ApprovalBroker
 
 
 def _start(broker):
     result = []
-    t = threading.Thread(
-        target=lambda: result.append(broker.confirm("write_file", {"path": "a.txt"}))
-    )
+
+    def run():
+        try:
+            result.append(broker.confirm("write_file", {"path": "a.txt"}))
+        except ConfirmTimeout as exc:
+            result.append(exc)
+
+    t = threading.Thread(target=run)
     t.start()
     return t, result
 
@@ -40,11 +46,12 @@ def test_deny_returns_false():
     assert result == [False]
 
 
-def test_timeout_denies_and_clears_pending():
+def test_timeout_raises_and_clears_pending():
     broker = ApprovalBroker(timeout=0.1)
     t, result = _start(broker)
     t.join(2)
-    assert result == [False]
+    assert len(result) == 1
+    assert isinstance(result[0], ConfirmTimeout)
     assert broker.list_pending() == []
 
 

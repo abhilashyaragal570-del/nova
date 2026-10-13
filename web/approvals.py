@@ -2,7 +2,9 @@
 
 The worker thread running a tool call blocks in confirm() until the
 browser answers through resolve(), or the timeout passes. Fails closed:
-only an explicit approval returns True.
+only an explicit approval returns True. If nobody answers in time, confirm()
+raises ConfirmTimeout, which the tool policy reports as "timed out" and
+treats as a refusal.
 
 confirm() also adds the time it spent waiting to a counter kept per thread.
 The code that times a chat turn calls reset_wait() before the turn and
@@ -17,6 +19,8 @@ import threading
 import time
 import uuid
 from typing import Any
+
+from tools.policy import ConfirmTimeout
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 MAX_SUMMARY_CHARS = 1000
@@ -49,7 +53,11 @@ class ApprovalBroker:
         self._local = threading.local()
 
     def confirm(self, tool_name: str, arguments: dict[str, Any]) -> bool:
-        """Matches ToolPolicy's ConfirmFn. Blocks until answered or timed out."""
+        """Matches ToolPolicy's ConfirmFn. Blocks until answered or timed out.
+
+        Returns True only for an explicit approval, False for a denial, and
+        raises ConfirmTimeout when nobody answered in time.
+        """
         pending = _Pending(tool_name, _summarize(arguments))
         approval_id = uuid.uuid4().hex
         with self._lock:
@@ -59,7 +67,9 @@ class ApprovalBroker:
         self._add_wait(time.perf_counter() - started)
         with self._lock:
             self._pending.pop(approval_id, None)
-        return answered and pending.approved is True
+        if not answered:
+            raise ConfirmTimeout(f"No answer for '{tool_name}' in {self.timeout}s")
+        return pending.approved is True
 
     def _add_wait(self, seconds: float) -> None:
         self._local.waited = getattr(self._local, "waited", 0.0) + seconds

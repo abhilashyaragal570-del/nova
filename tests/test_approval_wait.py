@@ -1,6 +1,9 @@
 import threading
 import time
 
+import pytest
+
+from tools.policy import ConfirmTimeout
 from web.approvals import ApprovalBroker
 
 
@@ -45,17 +48,25 @@ def test_taking_the_wait_resets_it():
     assert broker.take_wait() == 0.0
 
 
-def test_a_timeout_counts_as_waiting_and_is_a_denial():
+def test_a_timeout_counts_as_waiting_and_raises():
     broker = ApprovalBroker(timeout=0.05)
     broker.reset_wait()
-    assert broker.confirm("write_file", {}) is False
+    with pytest.raises(ConfirmTimeout):
+        broker.confirm("write_file", {})
     assert broker.take_wait() >= 0.04
 
 
 def test_waits_in_other_threads_are_not_counted_here():
     broker = ApprovalBroker(timeout=0.05)
     broker.reset_wait()
-    thread = threading.Thread(target=lambda: broker.confirm("write_file", {}))
+
+    def run():
+        try:
+            broker.confirm("write_file", {})
+        except ConfirmTimeout:
+            pass
+
+    thread = threading.Thread(target=run)
     thread.start()
     thread.join(2)
     assert broker.take_wait() == 0.0
