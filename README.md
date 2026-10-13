@@ -364,7 +364,9 @@ Notes for the free plan:
 
 The repo has a `Dockerfile` that runs the web app with uvicorn, one process, as a normal (non-root) user. A `.dockerignore` keeps your `.env`, chats, documents and saved facts out of the image.
 
-**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It was also run with a PostgreSQL database in a second container on a user-defined Docker network, with `DATABASE_URL` pointing at the database container's name. Nova created the `conversations` and `rag_chunks` tables, a document was indexed into `rag_chunks`, and Nova answered a question from it and named the file. The Docker Compose file was tested the same way: Nova and PostgreSQL started together, Nova answered from an indexed document, and after `docker compose down` and `docker compose up` the chat and the document were still there. In the Compose setup, a workflow was planned and run from the web app, and PostgreSQL then held all four tables, with a row in `workflow_runs` and rows in `workflow_events`. The `workflow_runs` and `workflow_events` tables were not checked in the earlier setup with a database in a second container. Nothing has been tested on macOS or Linux.
+**Status:** the image was built and run on Windows with Docker Desktop (WSL 2), with the app started by uvicorn. Login, chat, the Memory panel and the password-protected `/docs` page worked in the container, using local files for storage, and a saved memory fact was still there after the container was stopped and started again. It was also run with a PostgreSQL database in a second container on a user-defined Docker network, with `DATABASE_URL` pointing at the database container's name. Nova created the `conversations` and `rag_chunks` tables, a document was indexed into `rag_chunks`, and Nova answered a question from it and named the file. The Docker Compose file was tested the same way: Nova and PostgreSQL started together, Nova answered from an indexed document, and after `docker compose down` and `docker compose up` the chat and the document were still there. In the Compose setup, a workflow was planned and run from the web app, and PostgreSQL then held all four tables, with a row in `workflow_runs` and rows in `workflow_events`. The `workflow_runs` and `workflow_events` tables were not checked in the earlier setup with a database in a second container.
+
+On Linux, GitHub Actions builds the image on every push and starts it with a fake Gemini key. It checks that the container runs as a normal user, that the app answers 401 without a password or with a wrong one, and that the right password gets `/docs` and `/usage`. A second job checks that the Compose file is valid and that Nova and PostgreSQL start together, with the same login checks. Chat, document search, workflows and Nova's own use of PostgreSQL are not run there, because they need a real Gemini key. Nothing has been tested on macOS.
 
 Build the image from the repo folder:
 
@@ -448,7 +450,7 @@ Install the dev requirements and run the tests:
         pip install -r requirements-dev.txt
         python -m pytest
 
-Tests run on every push with GitHub Actions. They use fake models, so they never call Gemini. The PostgreSQL tests are skipped unless `TEST_DATABASE_URL` is set.
+Tests run on every push with GitHub Actions. They use fake models, so they never call Gemini. The PostgreSQL tests are skipped unless `TEST_DATABASE_URL` is set. The same workflow also has two Docker jobs that build the image and start the Compose setup on Linux (see Docker above).
 
 ## Tool usage log and evaluation
 
@@ -524,9 +526,9 @@ The tracing code is in `app/tracing.py`, and `tests/test_tracing.py` tests it wi
 
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, reply latency numbers that leave out the approval wait, workflow runs in the usage log and on the usage page, optional OpenTelemetry tracing, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, reply latency numbers that leave out the approval wait, workflow runs in the usage log and on the usage page, optional OpenTelemetry tracing, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), CI jobs that build the image and start the Compose setup on Linux, a FastAPI backend, password-protected API docs, and a live demo on Render.
 
-Planned next: test the Docker image and the Compose file on macOS or Linux.
+Planned next: run chat and document search against the Docker image on Linux and macOS, which the CI jobs don't cover because they use a fake Gemini key.
 
 ## License
 
