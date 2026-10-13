@@ -3,9 +3,18 @@
 The worker thread running a tool call blocks in confirm() until the
 browser answers through resolve(), or the timeout passes. Fails closed:
 only an explicit approval returns True.
+
+confirm() also adds the time it spent waiting to a counter kept per thread.
+The code that times a chat turn calls reset_wait() before the turn and
+take_wait() after it, so the turn's latency can leave out the time the person
+took to click Approve or Deny.
+
+The wait is measured with time.perf_counter(), the same clock the turn timer
+uses, so a turn's waiting time can never be longer than the turn itself.
 """
 import json
 import threading
+import time
 import uuid
 from typing import Any
 
@@ -36,6 +45,8 @@ class ApprovalBroker:
         self.timeout = timeout
         self._lock = threading.Lock()
         self._pending: dict[str, _Pending] = {}
+        # Seconds this thread has spent waiting in confirm() since reset_wait().
+        self._local = threading.local()
 
     def confirm(self, tool_name: str, arguments: dict[str, Any]) -> bool:
         """Matches ToolPolicy's ConfirmFn. Blocks until answered or timed out."""
@@ -43,10 +54,25 @@ class ApprovalBroker:
         approval_id = uuid.uuid4().hex
         with self._lock:
             self._pending[approval_id] = pending
+        started = time.perf_counter()
         answered = pending.event.wait(self.timeout)
+        self._add_wait(time.perf_counter() - started)
         with self._lock:
             self._pending.pop(approval_id, None)
         return answered and pending.approved is True
+
+    def _add_wait(self, seconds: float) -> None:
+        self._local.waited = getattr(self._local, "waited", 0.0) + seconds
+
+    def reset_wait(self) -> None:
+        """Start counting from zero on the calling thread."""
+        self._local.waited = 0.0
+
+    def take_wait(self) -> float:
+        """Seconds the calling thread spent waiting since reset_wait(), then reset."""
+        waited = getattr(self._local, "waited", 0.0)
+        self._local.waited = 0.0
+        return waited
 
     def list_pending(self) -> list[dict[str, str]]:
         with self._lock:

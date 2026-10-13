@@ -8,12 +8,21 @@ When the log is rotated (see app/usage_log.py), the full file is kept as
 the totals do not drop back to zero after a rotation. Only one older file
 exists, so the report covers at most the last two files.
 
+Turns that were timed also have a duration_seconds value, and some have an
+approval_wait_seconds value: the time spent waiting for the person to click
+Approve or Deny. The latency numbers (average, median, 95th percentile and
+slowest) use the duration minus that wait, so they show how long Nova itself
+took. Older lines and turns that were not timed (such as the terminal chat) are
+left out of the latency numbers but still counted everywhere else.
+
 Usage: python -m app.usage_report
 """
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
+from statistics import median
 
 from app.usage_log import get_log_path
 
@@ -87,6 +96,79 @@ def summarize(entries: list) -> dict:
     }
 
 
+def _seconds(value) -> float | None:
+    """A usable number of seconds, or None for anything else."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
+def _timed_turns(entries: list) -> list:
+    """(active_seconds, approval_wait_seconds) for each usable timed turn.
+
+    active_seconds is the duration minus the approval wait, never below zero.
+    A missing or unusable wait counts as zero.
+    """
+    turns = []
+    for entry in entries:
+        duration = _seconds(entry.get("duration_seconds"))
+        if duration is None:
+            continue
+        wait = _seconds(entry.get("approval_wait_seconds")) or 0.0
+        turns.append((max(0.0, duration - wait), wait))
+    return turns
+
+
+def percentile(values: list, pct: float) -> float | None:
+    """The nearest-rank percentile of values, or None when there are none."""
+    ordered = sorted(values)
+    if not ordered:
+        return None
+    rank = max(1, math.ceil(pct * len(ordered) / 100))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def summarize_latency(entries: list) -> dict | None:
+    """Turn-time numbers over the timed turns, or None when none were timed.
+
+    The times leave out the approval wait. approval_wait_seconds is the total
+    that was left out, and turns_with_approval counts the turns that had any.
+    """
+    turns = _timed_turns(entries)
+    if not turns:
+        return None
+    active = [a for a, _ in turns]
+    waits = [w for _, w in turns]
+    return {
+        "turns": len(turns),
+        "average_seconds": round(sum(active) / len(active), 3),
+        "median_seconds": round(median(active), 3),
+        "p95_seconds": round(percentile(active, 95), 3),
+        "max_seconds": round(max(active), 3),
+        "approval_wait_seconds": round(sum(waits), 3),
+        "turns_with_approval": sum(1 for w in waits if w > 0),
+    }
+
+
+def format_latency(latency: dict) -> str:
+    lines = [
+        f"Latency ({latency['turns']} timed turns):",
+        f"  average  {latency['average_seconds']:.2f}s",
+        f"  median   {latency['median_seconds']:.2f}s",
+        f"  95th     {latency['p95_seconds']:.2f}s",
+        f"  slowest  {latency['max_seconds']:.2f}s",
+    ]
+    count = latency.get("turns_with_approval", 0)
+    if count:
+        lines.append(
+            f"  (left out: {latency.get('approval_wait_seconds', 0):.2f}s "
+            f"spent waiting for approval in {count} turns)"
+        )
+    return "\n".join(lines)
+
+
 def format_report(summary: dict, skipped: int = 0) -> str:
     lines = [
         f"Turns: {summary['turns']}",
@@ -134,6 +216,10 @@ def main() -> int:
     if old.exists():
         print(f"(includes the older log {old.name})\n")
     print(format_report(summarize(entries), skipped))
+    latency = summarize_latency(entries)
+    if latency:
+        print("")
+        print(format_latency(latency))
     return 0
 
 

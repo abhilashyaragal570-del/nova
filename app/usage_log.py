@@ -1,4 +1,6 @@
-"""Writes one JSON line per chat turn: which tools ran and token usage.
+"""Writes one JSON line per chat turn: which tools ran, token usage and, when
+the caller measured them, how long the turn took and how much of that was spent
+waiting for the person to approve a tool.
 
 Deliberately does not import config.settings, which raises an error when
 GEMINI_API_KEY is missing. Its one optional setting, TOOL_LOG_PATH, is read
@@ -9,6 +11,7 @@ Logging must never break a chat, so write errors are reported and swallowed.
 """
 import json
 import logging
+import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,9 +49,23 @@ def get_log_path(env_file: Path | None = None) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
-def build_entry(result: Any, source: str) -> dict:
+def _clean_seconds(value: Any) -> float | None:
+    """A usable number of seconds, or None for anything else."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return round(float(value), 3)
+
+
+def build_entry(
+    result: Any,
+    source: str,
+    duration_seconds: Any = None,
+    approval_wait_seconds: Any = None,
+) -> dict:
     """Turn a TurnResult into a plain dict. Never includes message text."""
-    return {
+    entry = {
         "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source": source,
         "tools": list(result.tools_used),
@@ -58,6 +75,13 @@ def build_entry(result: Any, source: str) -> dict:
         "reply_tokens": result.reply_tokens,
         "total_tokens": result.total_tokens,
     }
+    duration = _clean_seconds(duration_seconds)
+    if duration is not None:
+        entry["duration_seconds"] = duration
+    wait = _clean_seconds(approval_wait_seconds)
+    if wait is not None:
+        entry["approval_wait_seconds"] = wait
+    return entry
 
 
 def _rotate_if_needed(path: Path, max_bytes: int) -> None:
@@ -71,6 +95,8 @@ def log_turn(
     source: str = "unknown",
     path: Path | None = None,
     max_bytes: int = MAX_LOG_BYTES,
+    duration_seconds: Any = None,
+    approval_wait_seconds: Any = None,
 ) -> bool:
     """Append one line for this turn. Returns True if it was written."""
     path = Path(path) if path else get_log_path()
@@ -78,7 +104,14 @@ def log_turn(
         path.parent.mkdir(parents=True, exist_ok=True)
         _rotate_if_needed(path, max_bytes)
         with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(build_entry(result, source)) + "\n")
+            f.write(
+                json.dumps(
+                    build_entry(
+                        result, source, duration_seconds, approval_wait_seconds
+                    )
+                )
+                + "\n"
+            )
         return True
     except OSError as exc:
         logger.warning("Could not write tool usage log %s: %s", path, exc)

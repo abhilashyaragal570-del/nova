@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +9,7 @@ from google.genai import errors
 
 from memory.conversation_store import ConversationStore
 from web import fastapi_app, server
+from web.approvals import ApprovalBroker
 
 AUTH = ("nova", "secret")
 
@@ -46,16 +49,22 @@ class Harness:
         self.streams = list(streams)
         self.chats = []
         self.logged = []
+        self.durations = []
+        self.waits = []
         monkeypatch.setattr(server, "store", self.store)
         monkeypatch.setattr(server, "current_prompt", "Original prompt")
         monkeypatch.setattr(server, "new_chat", self.new_chat)
-        monkeypatch.setattr(
-            server,
-            "log_turn",
-            lambda result, source="": self.logged.append(source) or True,
-        )
+        monkeypatch.setattr(server, "log_turn", self.log_turn)
         self.client = TestClient(fastapi_app.app)
         self.client.auth = AUTH
+
+    def log_turn(
+        self, result, source="", duration_seconds=None, approval_wait_seconds=None
+    ):
+        self.logged.append(source)
+        self.durations.append(duration_seconds)
+        self.waits.append(approval_wait_seconds)
+        return True
 
     def new_chat(self, messages, prompt):
         self.chats.append({"messages": list(messages), "prompt": prompt})
@@ -191,6 +200,44 @@ def test_the_turn_is_logged_as_web(monkeypatch, tmp_path):
     h = Harness(monkeypatch, tmp_path, [[chunk("a")]])
     h.say("hi")
     assert h.logged == ["web"]
+
+
+def test_the_turn_time_is_logged(monkeypatch, tmp_path):
+    h = Harness(monkeypatch, tmp_path, [[chunk("a")]])
+    h.say("hi")
+    assert len(h.durations) == 1
+    assert isinstance(h.durations[0], float)
+    assert h.durations[0] >= 0
+
+
+def test_the_approval_wait_is_logged_separately(monkeypatch, tmp_path):
+    h = Harness(monkeypatch, tmp_path, [])
+    broker = ApprovalBroker(timeout=5)
+    monkeypatch.setattr(server, "approvals", broker)
+
+    class WaitingSession:
+        def send_message_stream(self, message):
+            def answer_soon():
+                for _ in range(300):
+                    pending = broker.list_pending()
+                    if pending:
+                        time.sleep(0.05)
+                        broker.resolve(pending[0]["id"], True)
+                        return
+                    time.sleep(0.01)
+
+            threading.Thread(target=answer_soon).start()
+            # Blocks this worker thread until the other thread answers.
+            broker.confirm("write_file", {"path": "a.txt"})
+            yield chunk("ok")
+
+    monkeypatch.setattr(server, "new_chat", lambda messages, prompt: WaitingSession())
+    _, body = h.say("hi")
+    assert body == "ok"
+    assert len(h.waits) == 1
+    assert h.waits[0] >= 0.04
+    # The wait is rounded to 3 decimals and the duration is not, so allow 1 ms.
+    assert h.durations[0] + 0.001 >= h.waits[0]
 
 
 def test_chat_is_listed_in_docs(monkeypatch, tmp_path):

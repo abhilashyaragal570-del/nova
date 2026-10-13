@@ -10,6 +10,9 @@ State is shared with Flask by going through the web.server module at call
 time: its conversation store, its current personality, its approval broker,
 its workflow manager and its tool registry. Tests replace those.
 
+Every response carries an X-Request-ID header, and each request writes one JSON
+log line (see web/observability.py).
+
 The API docs (/docs, /redoc and /openapi.json) list every FastAPI route and can
 try them. They sit behind the same password as everything else.
 Run the app with: uvicorn web.fastapi_app:app --port 8000
@@ -20,6 +23,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from typing import Annotated, Any
 
 from a2wsgi import WSGIMiddleware
@@ -40,16 +44,18 @@ from agents.history import clear_messages, load_messages, save_messages, to_cont
 from app.chat import fact_store
 from app.tool_loop import run_turn
 from app.usage_log import get_log_path, log_turn
-from app.usage_report import read_all_entries, summarize
+from app.usage_report import read_all_entries, summarize, summarize_latency
 from memory.conversation_store import NEW_TITLE
 from rag.embedder import EmbedError
 from rag.index import RagIndexError
 from rag.ingest import MAX_FILE_BYTES, IngestError, add_upload
 from web import server as flask_server
+from web.observability import RequestLogMiddleware, setup_access_log
 from web.workflow_runs import Busy
 from workflows.store import StoreError
 
 logger = logging.getLogger(__name__)
+setup_access_log()
 
 # Room for one file plus the form overhead, the same limit Flask used.
 MAX_REQUEST_BYTES = MAX_FILE_BYTES + 100_000
@@ -87,6 +93,9 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+# Wraps everything, including the mounted Flask pages.
+app.add_middleware(RequestLogMiddleware)
 
 
 class FactIn(BaseModel):
@@ -204,6 +213,23 @@ def swagger_ui():
 @app.get("/redoc", include_in_schema=False)
 def redoc_page():
     return get_redoc_html(openapi_url="/openapi.json", title="Nova - API docs")
+
+
+# ---------- turn timing ----------
+# A chat turn can stop and wait for the person to click Approve or Deny. The
+# broker adds that waiting to a counter for the calling thread, so the worker
+# thread resets it before the turn and reads it after, and the log can keep the
+# total time and the waiting time apart.
+
+
+def _start_turn_clock() -> float:
+    flask_server.approvals.reset_wait()
+    return time.perf_counter()
+
+
+def _end_turn_clock(started: float) -> tuple[float, float]:
+    """(total seconds, seconds spent waiting for approval)."""
+    return time.perf_counter() - started, flask_server.approvals.take_wait()
 
 
 # ---------- memory ----------
@@ -423,11 +449,18 @@ def chat(body: MainChatIn | None = None):
         outcome = {}
 
         def worker():
+            started = _start_turn_clock()
             try:
                 outcome["result"] = run_turn(
                     chat_session, user_input, registry, on_text=chunks.put
                 )
-                flask_server.log_turn(outcome["result"], source="web")
+                elapsed, waited = _end_turn_clock(started)
+                flask_server.log_turn(
+                    outcome["result"],
+                    source="web",
+                    duration_seconds=elapsed,
+                    approval_wait_seconds=waited,
+                )
             except errors.APIError as e:
                 outcome["error"] = e
             finally:
@@ -563,6 +596,8 @@ def api_usage():
     entries, skipped = read_all_entries(get_log_path())
     summary = summarize(entries)
     summary["skipped"] = skipped
+    # None when no turn has been timed yet.
+    summary["latency"] = summarize_latency(entries)
     return summary
 
 
@@ -639,11 +674,18 @@ def api_agent_chat(name: str, body: ChatIn | None = None):
         outcome = {}
 
         def worker():
+            started = _start_turn_clock()
             try:
                 outcome["result"] = run_turn(
                     chat_session, user_input, registry, on_text=chunks.put
                 )
-                log_turn(outcome["result"], source=f"web-agent:{spec.name}")
+                elapsed, waited = _end_turn_clock(started)
+                log_turn(
+                    outcome["result"],
+                    source=f"web-agent:{spec.name}",
+                    duration_seconds=elapsed,
+                    approval_wait_seconds=waited,
+                )
             except errors.APIError as e:
                 outcome["error"] = e
             finally:

@@ -24,6 +24,9 @@
 <p class="muted"><a href="/">Back to chat</a> &middot; <a href="#" id="refresh">Refresh</a></p>
 <div class="stats" id="stats"></div>
 <p class="muted" id="skipped"></p>
+<h2>Latency</h2>
+<div class="stats" id="latency"></div>
+<p class="muted" id="latency-note"></p>
 <h2>Tools used</h2>
 <table id="tools"></table>
 <h2>By source</h2>
@@ -64,6 +67,31 @@ function stat(label, value) {
   box.appendChild(document.createTextNode(label));
   return box;
 }
+function seconds(value) {
+  return Number(value).toFixed(2) + "s";
+}
+function showLatency(latency) {
+  const box = document.getElementById("latency");
+  const note = document.getElementById("latency-note");
+  if (!latency) {
+    box.replaceChildren();
+    note.textContent = "No timed turns yet. Chat in the web app and refresh to see how long replies take.";
+    return;
+  }
+  box.replaceChildren(
+    stat("average", seconds(latency.average_seconds)),
+    stat("median", seconds(latency.median_seconds)),
+    stat("95th percentile", seconds(latency.p95_seconds)),
+    stat("slowest", seconds(latency.max_seconds))
+  );
+  let text = "Based on " + latency.turns.toLocaleString() + " timed turn(s). Turns from before timing was added, and the terminal chat, are left out.";
+  if (latency.turns_with_approval) {
+    text += " Time spent waiting for your Approve or Deny click (" +
+      seconds(latency.approval_wait_seconds) + " over " +
+      latency.turns_with_approval.toLocaleString() + " turn(s)) is not counted.";
+  }
+  note.textContent = text;
+}
 async function load() {
   const res = await fetch("/api/usage");
   if (!res.ok) {
@@ -80,6 +108,7 @@ async function load() {
   );
   document.getElementById("skipped").textContent =
     d.skipped ? d.skipped + " unreadable log line(s) skipped." : "";
+  showLatency(d.latency);
   const tools = Object.entries(d.tools)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name, count]) => [name, count.toLocaleString()]);
