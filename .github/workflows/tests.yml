@@ -17,3 +17,78 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest
+
+  # Builds the Docker image on Linux and starts it with a fake Gemini key.
+  # It checks that the container starts and the password check works. It never
+  # calls Gemini, so chat and document search are not tested here.
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t nova .
+      - name: Start the container
+        run: >
+          docker run -d --name nova-ci -p 8000:8000
+          -e GEMINI_API_KEY=ci-fake-key
+          -e NOVA_PASSWORD=ci-password
+          nova
+      - name: Wait until the app answers
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)
+            if [ "$code" = "401" ]; then
+              echo "App is up (401 without a password)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not answer with 401 in time."
+          exit 1
+      - name: Check the password protection
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/docs)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -u nova:wrong http://127.0.0.1:8000/docs)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -u nova:ci-password http://127.0.0.1:8000/docs)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -u nova:ci-password http://127.0.0.1:8000/usage)" = "200"
+      - name: Check the container runs as a normal user
+        run: test "$(docker exec nova-ci id -u)" = "1000"
+      - name: Show the container log if something failed
+        if: failure()
+        run: docker logs nova-ci
+
+  # Starts Nova and PostgreSQL together with Docker Compose, using a throwaway
+  # .env with fake values. Still no Gemini calls.
+  docker-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a throwaway .env
+        run: |
+          printf 'GEMINI_API_KEY=ci-fake-key\nNOVA_PASSWORD=ci-password\nPOSTGRES_PASSWORD=cipassword123\n' > .env
+      - name: Check the Compose file
+        run: docker compose config --quiet
+      - name: Start Nova and PostgreSQL
+        run: docker compose up -d --build
+      - name: Wait until the app answers
+        run: |
+          for i in $(seq 1 45); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)
+            if [ "$code" = "401" ]; then
+              echo "App is up (401 without a password)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not answer with 401 in time."
+          exit 1
+      - name: Check the password protection
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/docs)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -u nova:ci-password http://127.0.0.1:8000/docs)" = "200"
+      - name: Show the logs if something failed
+        if: failure()
+        run: docker compose logs
+      - name: Shut down
+        if: always()
+        run: docker compose down -v
