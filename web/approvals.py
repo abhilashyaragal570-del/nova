@@ -9,7 +9,8 @@ treats as a refusal.
 confirm() also adds the time it spent waiting to a counter kept per thread.
 The code that times a chat turn calls reset_wait() before the turn and
 take_wait() after it, so the turn's latency can leave out the time the person
-took to click Approve or Deny.
+took to click Approve or Deny. The same wait is added to app.turn_clock, which
+the workflow runner reads.
 
 The wait is measured with time.perf_counter(), the same clock the turn timer
 uses, so a turn's waiting time can never be longer than the turn itself.
@@ -20,6 +21,7 @@ import time
 import uuid
 from typing import Any
 
+from app import turn_clock
 from tools.policy import ConfirmTimeout
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -73,6 +75,7 @@ class ApprovalBroker:
 
     def _add_wait(self, seconds: float) -> None:
         self._local.waited = getattr(self._local, "waited", 0.0) + seconds
+        turn_clock.add_wait(seconds)
 
     def reset_wait(self) -> None:
         """Start counting from zero on the calling thread."""

@@ -6,12 +6,16 @@ runner. Tool approvals (writes, API calls) still go through the registry's
 policy, so they show the same Approve / Deny cards as chat.
 
 All collaborators are passed in, so tests use fakes and never call Gemini.
+An optional `record(workflow, total_seconds, approval_wait_seconds)` callback
+is called when a run ends, so the usage log can keep the total time and the
+time spent waiting for approval apart.
 """
 import logging
 import threading
 import uuid
 from typing import Any, Callable
 
+from app.turn_clock import end_turn, start_turn
 from workflows.models import WorkflowStatus
 from workflows.planner import PlanError
 from workflows.runner import _one_line, format_plan, format_result
@@ -52,10 +56,12 @@ class WorkflowManager:
         make_planner: Callable[[bool], Any],
         make_executor: Callable[[Callable, threading.Event], Any],
         make_store: Callable[[], Any],
+        record: Callable[[Any, float, float], Any] | None = None,
     ) -> None:
         self._make_planner = make_planner
         self._make_executor = make_executor
         self._make_store = make_store
+        self._record_run = record
         self._store = None
         self._lock = threading.Lock()
         self._run: _Run | None = None
@@ -74,6 +80,14 @@ class WorkflowManager:
         with self._lock:
             run.state = state
             run.error = error
+
+    def _log_run(self, workflow: Any, elapsed: float, waited: float) -> None:
+        if self._record_run is None:
+            return
+        try:
+            self._record_run(workflow, elapsed, waited)
+        except Exception:  # logging must never break a run
+            logger.exception("could not record the workflow run")
 
     # ---- starting ----
 
@@ -165,15 +179,20 @@ class WorkflowManager:
             logger.exception("could not open the workflow store")
             self._finish(run, ERROR, "Could not save the workflow, so it was not run.")
             return
+        started = start_turn()
         try:
             executor = self._make_executor(store.listener(workflow), run.cancel_event)
             executor.run(workflow)
         except Exception:
+            elapsed, waited = end_turn(started)
+            self._log_run(workflow, elapsed, waited)
             logger.exception("workflow %s stopped unexpectedly", workflow.id)
             self._finish(
                 run, ERROR, "The workflow stopped unexpectedly. Progress is saved; you can resume it."
             )
             return
+        elapsed, waited = end_turn(started)
+        self._log_run(workflow, elapsed, waited)
         warning = ""
         try:
             store.save(workflow)

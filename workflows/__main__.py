@@ -7,6 +7,7 @@ argument errors never need an API key.
 import argparse
 import sys
 
+from app.workflow_log import log_workflow
 from workflows.executor import WorkflowExecutor
 from workflows.gemini_planner import make_planner
 from workflows.models import WorkflowStatus
@@ -63,7 +64,9 @@ def main(argv: list[str] | None = None, store: WorkflowStore | None = None) -> i
         )
 
     if args.resume:
-        result = resume_workflow(args.resume, make_executor, store)
+        result = resume_workflow(
+            args.resume, make_executor, store, record=log_workflow
+        )
     else:
         planner = make_planner(
             registry,
@@ -71,7 +74,7 @@ def main(argv: list[str] | None = None, store: WorkflowStore | None = None) -> i
             read_only_only=not args.write_tools,
             critic=not args.no_critic,
         )
-        result = run_goal(goal, planner, make_executor, store)
+        result = run_goal(goal, planner, make_executor, store, record=log_workflow)
     return 0 if result is not None and result.status is WorkflowStatus.SUCCEEDED else 1
 
 
