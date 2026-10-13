@@ -30,8 +30,11 @@ def enabled() -> bool:
 def _default_exporter(console_exporter: Any) -> Any:
     path = os.environ.get("NOVA_TRACE_FILE", "").strip()
     out = open(path, "a", encoding="utf-8") if path else sys.stderr
+    # A plain "\n": text mode turns it into the right line ending for the
+    # system. os.linesep here made Windows write "\r\r\n", which showed up as
+    # blank lines between spans.
     return console_exporter(
-        out=out, formatter=lambda finished: finished.to_json(indent=None) + os.linesep
+        out=out, formatter=lambda finished: finished.to_json(indent=None) + "\n"
     )
 
 

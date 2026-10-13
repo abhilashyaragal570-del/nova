@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/abhilashyaragal570-del/nova/actions/workflows/tests.yml/badge.svg)
 
-Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, a usage and latency report, and optional PostgreSQL storage.
+Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, a usage and latency report, optional OpenTelemetry tracing, and optional PostgreSQL storage.
 
 ## Live demo
 
@@ -52,6 +52,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - **Agents get a restricted copy of the registry.** The notes agent cannot search the web or write files because those tools are not there for it to call. This is enforced by what the agent is given, not by asking the model to behave.
 - **The approval wait is left out of latency.** A turn can sit waiting for a human click. The server counts that wait separately and the report subtracts it, so the latency numbers show how long Nova itself took. Workflow runs keep their own total (`workflow_seconds`), so one long workflow never skews the chat numbers.
 - **Logging never breaks a run.** A failed log write is reported and swallowed. The log records which tools ran, counts and timing, but never your messages, Nova's replies, a workflow goal or tool arguments.
+- **Tracing is optional and private.** It is off unless `NOVA_TRACING` is set, it does nothing if the OpenTelemetry package is not installed, and spans hold names, counts and token totals only, never message text or tool arguments.
 - **One password check for everything.** FastAPI checks the password on every route, including the API docs. The two pages that Flask still serves are mounted into the same app, and Flask checks the password too.
 - **One workflow at a time, one server process.** The workflow that is planning or running lives in the server's memory, so the app is run as a single uvicorn process. Its progress is saved, so an interrupted run can be resumed.
 - **Storage behind one interface.** Chats, workflow runs and indexed documents use local files by default and PostgreSQL when `DATABASE_URL` is set, with no change to the rest of the app.
@@ -71,6 +72,7 @@ Every tool call goes through one policy layer. Agents only see the tools they ar
 - Browser approval: in the web app, a tool that needs approval shows an Approve / Deny card
 - Workflow engine: plans a goal, shows the plan, asks for approval, runs it with retries and saves progress so it can be resumed. Works from the terminal and from a Workflows panel in the web app
 - Usage page: tool counts, tokens, reply latency (average, median, 95th percentile, slowest) and a Workflows section with run counts, final statuses and run times
+- Optional OpenTelemetry tracing of chat turns, model calls and tool calls, written as JSON lines (see Tracing below)
 - Storage behind one interface for chats, workflow runs and indexed documents: local files by default, PostgreSQL when `DATABASE_URL` is set
 - A `Dockerfile` and a Docker Compose file to run the web app, with PostgreSQL if you want it (see Docker below)
 - Token usage shown after every reply
@@ -127,6 +129,7 @@ Under the hood: one FastAPI app with a single password check on every route, one
    - `NOVA_EMBED_MODEL` is optional. Leave it empty to use `gemini-embedding-001`. See Documents below.
    - `DATABASE_URL` is optional. Leave it empty to save chats, workflow runs and indexed documents as local files. Set it to a PostgreSQL connection string to save them in a database. On your own computer, use a database's external URL; a host's internal URL only works from inside that host.
    - `POSTGRES_PASSWORD` is only used by Docker Compose (see Docker Compose below). Leave it empty otherwise.
+   - Tracing has two more optional variables, `NOVA_TRACING` and `NOVA_TRACE_FILE`. See Tracing below.
    - Never commit your `.env` file.
 
 ## Run
@@ -474,9 +477,54 @@ This sends the questions in `evals/questions.json` to Gemini (real API calls, ab
 
 If the API answers with a rate limit error (429), the runner waits 60 seconds and tries that question again, then waits 120 seconds for a second retry, and marks the question failed if it still gets a 429. Other errors fail the question straight away. A line such as `rate limited, waiting 60s (retry 1 of 2)` is printed while it waits.
 
+## Tracing (optional)
+
+Nova can record OpenTelemetry spans for chat turns, model calls and tool calls. Tracing is off by default.
+
+To switch it on, install the OpenTelemetry SDK and set `NOVA_TRACING`:
+
+        pip install opentelemetry-sdk
+
+Windows (PowerShell):
+
+        $env:NOVA_TRACING = "1"
+        $env:NOVA_TRACE_FILE = "logs\trace.jsonl"
+        python -m app.chat
+
+macOS / Linux:
+
+        export NOVA_TRACING=1
+        export NOVA_TRACE_FILE=logs/trace.jsonl
+        python -m app.chat
+
+- `NOVA_TRACING` turns tracing on when it is `1`, `true`, `yes` or `on`. Any other value, or no value, leaves it off.
+- `NOVA_TRACE_FILE` is the file that finished spans are appended to. When it is not set, spans are written to stderr.
+- Each finished span is one JSON line in OpenTelemetry's standard span format.
+- If `opentelemetry-sdk` is not installed, Nova logs a warning and carries on with tracing off. Nothing else changes.
+- Spans are written straight to the file as they finish. There is no collector or dashboard to set up, and the file can be read with any tool that reads JSON lines.
+- The `logs/` folder is ignored by git, so a trace file kept there is never pushed.
+
+Nova records three kinds of span:
+
+| Span | Attributes | What it covers |
+| --- | --- | --- |
+| `nova.turn` | `nova.tool_calls`, `nova.total_tokens`, `nova.hit_round_limit` | One whole chat turn |
+| `nova.model_call` | `nova.round` | One call to the model. `nova.round` is 0 for the first call and goes up each time the model asks for tools |
+| `nova.tool` | `nova.tool_name`, `nova.tool_ok` | One tool call, and whether it succeeded |
+
+Spans hold names, counts, flags and token totals only. They never contain message text or tool arguments. A span is written when it finishes, so the model-call and tool spans of a turn appear in the file before the `nova.turn` span that covers them.
+
+To list the spans in a trace file in PowerShell:
+
+        Get-Content logs\trace.jsonl | ForEach-Object { $s = ConvertFrom-Json $_; "$($s.name)  $($s.attributes | ConvertTo-Json -Compress)" }
+
+Turn tracing off again with `Remove-Item Env:NOVA_TRACING` (PowerShell) or `unset NOVA_TRACING`, so a later run, such as the tests, doesn't write spans into your trace file.
+
+The tracing code is in `app/tracing.py`, and `tests/test_tracing.py` tests it with a ready-made exporter, so those tests never need a real trace file.
+
 ## Roadmap
 
-Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, reply latency numbers that leave out the approval wait, workflow runs in the usage log and on the usage page, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), a FastAPI backend, password-protected API docs, and a live demo on Render.
+Done: tools, workflows, conversation and workflow storage on PostgreSQL, browser approval for tool calls and for workflows, document search over your own files (RAG), document upload and removal in the web app, specialized agents with routing in the terminal, a web API and an agent panel in the web page, a tool usage log with a usage report, reply latency numbers that leave out the approval wait, workflow runs in the usage log and on the usage page, optional OpenTelemetry tracing, an evaluation runner, long-term memory with a Memory panel in the web app, a Dockerfile (built and run on Windows with uvicorn), the Docker image run against PostgreSQL in a second container, a Docker Compose file that starts Nova and PostgreSQL together (tested on Windows, including workflow runs saved in PostgreSQL), a FastAPI backend, password-protected API docs, and a live demo on Render.
 
 Planned next: test the Docker image and the Compose file on macOS or Linux.
 
