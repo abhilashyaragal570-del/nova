@@ -7,10 +7,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install dependencies
@@ -22,9 +22,9 @@ jobs:
   # It checks that the container starts and the password check works. It never
   # calls Gemini, so chat and document search are not tested here.
   docker-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build the image
         run: docker build -t nova .
       - name: Start the container
@@ -60,9 +60,9 @@ jobs:
   # Starts Nova and PostgreSQL together with Docker Compose, using a throwaway
   # .env with fake values. Still no Gemini calls.
   docker-compose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Create a throwaway .env
         run: |
           printf 'GEMINI_API_KEY=ci-fake-key\nNOVA_PASSWORD=ci-password\nPOSTGRES_PASSWORD=cipassword123\n' > .env
