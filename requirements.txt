@@ -7,3 +7,5 @@ fastapi==0.143.0
 uvicorn==0.54.0
 a2wsgi==1.10.10
 python-multipart==0.0.32
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1

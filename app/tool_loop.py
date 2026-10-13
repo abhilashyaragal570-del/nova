@@ -2,6 +2,9 @@
 
 Takes any object with send_message_stream(), so it can be tested with a
 fake chat and no real API calls.
+
+Each turn, model call and tool call is wrapped in a tracing span (see
+app/tracing.py), which does nothing unless tracing is switched on.
 """
 import logging
 from dataclasses import dataclass, field
@@ -9,6 +12,7 @@ from typing import Any, Callable
 
 from google.genai import types
 
+from app import tracing
 from tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -34,10 +38,12 @@ def _response_part(name: str, response: dict) -> types.Part:
 
 def _run_call(registry: ToolRegistry, call: Any) -> types.Part:
     """Execute one function call and wrap the outcome for Gemini."""
-    result = registry.execute(call.name, dict(call.args or {}))
-    if result.ok:
-        return _response_part(call.name, {"result": result.output})
-    return _response_part(call.name, {"error": result.error})
+    with tracing.span("nova.tool", {"nova.tool_name": call.name}) as current:
+        result = registry.execute(call.name, dict(call.args or {}))
+        tracing.set_attribute(current, "nova.tool_ok", bool(result.ok))
+        if result.ok:
+            return _response_part(call.name, {"result": result.output})
+        return _response_part(call.name, {"error": result.error})
 
 
 def _chunk_parts(chunk: Any):
@@ -64,6 +70,21 @@ def run_turn(
     on_text: Callable[[str], None] | None = None,
     max_rounds: int = MAX_TOOL_ROUNDS,
 ) -> TurnResult:
+    with tracing.span("nova.turn") as turn_span:
+        result = _run_turn(chat, user_input, registry, on_text, max_rounds)
+        tracing.set_attribute(turn_span, "nova.tool_calls", result.tool_calls)
+        tracing.set_attribute(turn_span, "nova.total_tokens", result.total_tokens)
+        tracing.set_attribute(turn_span, "nova.hit_round_limit", result.hit_round_limit)
+        return result
+
+
+def _run_turn(
+    chat: Any,
+    user_input: str,
+    registry: ToolRegistry,
+    on_text: Callable[[str], None] | None,
+    max_rounds: int,
+) -> TurnResult:
     result = TurnResult()
     message: Any = user_input
     rounds = 0
@@ -72,16 +93,17 @@ def run_turn(
     while True:
         calls: list = []
         usage = None
-        for chunk in chat.send_message_stream(message):
-            for text, call in _chunk_parts(chunk):
-                if text:
-                    result.reply += text
-                    if on_text:
-                        on_text(text)
-                if call:
-                    calls.append(call)
-            if getattr(chunk, "usage_metadata", None):
-                usage = chunk.usage_metadata
+        with tracing.span("nova.model_call", {"nova.round": rounds}):
+            for chunk in chat.send_message_stream(message):
+                for text, call in _chunk_parts(chunk):
+                    if text:
+                        result.reply += text
+                        if on_text:
+                            on_text(text)
+                    if call:
+                        calls.append(call)
+                if getattr(chunk, "usage_metadata", None):
+                    usage = chunk.usage_metadata
 
         if usage:
             result.prompt_tokens += usage.prompt_token_count or 0
