@@ -2,6 +2,7 @@ from google.genai import errors, types
 from app.confirm import confirm_in_terminal
 from app.llm import client, MODEL
 from app.tool_loop import run_turn
+from app.turn_clock import end_turn, start_turn, timed_confirm
 from app.usage_log import log_turn
 from config import settings
 from memory.conversation_store import MAIN_ID
@@ -24,8 +25,11 @@ fact_store = FactStore()
 
 # Every tool call passes through this registry. The policy asks you to
 # approve any tool that is not read-only (currently: write_file, api_request,
-# remember, forget).
-registry = ToolRegistry(policy=ToolPolicy(confirm=confirm_in_terminal))
+# remember, forget). timed_confirm counts the time you take to answer, so the
+# log can keep it apart from the time Nova itself took.
+registry = ToolRegistry(
+    policy=ToolPolicy(confirm=timed_confirm(confirm_in_terminal))
+)
 registry.register(CalculatorTool())
 registry.register(WebSearchTool())
 registry.register(ListFilesTool())
@@ -114,6 +118,7 @@ def main():
             print("Nova: Memory cleared. Starting fresh.\n")
             continue
         print("Nova: ", end="", flush=True)
+        started = start_turn()
         try:
             result = run_turn(
                 chat,
@@ -124,8 +129,14 @@ def main():
         except errors.APIError as e:
             print(f"\n[Nova couldn't reply: error {e.code}. Try again in a moment.]\n")
             continue
+        elapsed, waited = end_turn(started)
         print()
-        log_turn(result, source="terminal")
+        log_turn(
+            result,
+            source="terminal",
+            duration_seconds=elapsed,
+            approval_wait_seconds=waited,
+        )
         if result.tool_calls:
             print(f"[used {result.tool_calls} tool call(s)]")
         if result.hit_round_limit:
