@@ -24,6 +24,7 @@ from app.chat import new_chat, SYSTEM_PROMPT, fact_store
 from app.llm import ask as model
 from app.llm import client as llm_client, MODEL as MODEL_NAME
 from app.usage_log import log_turn
+from app.workflow_log import log_workflow
 from memory.conversation_store import MAIN_ID
 from memory.store_factory import create_store
 from rag.embedder import GeminiEmbedder
@@ -81,8 +82,10 @@ workflow_manager = WorkflowManager(
         model=model,
         deadline_seconds=WORKFLOW_DEADLINE_SECONDS,
     ),
-    make_store=create_workflow_store,
+        make_store=create_workflow_store,
+    record=log_workflow,
 )
+
 
 # The document index is created on first use, and the embedder on each
 # upload. Tests replace these two functions with fakes.
