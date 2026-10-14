@@ -4,6 +4,8 @@
 
 Nova is a password-protected AI assistant built with Python and the Google Gemini API. It started as a command-line chat and now includes a web interface on a FastAPI backend, a tool-using agent, specialized agents with automatic routing, a workflow engine with browser approval, document search over your own files, long-term memory, a usage and latency report, optional OpenTelemetry tracing, and optional PostgreSQL storage.
 
+**Status:** feature-complete at v1.0 and paused while I build new projects. Next planned: run the Docker image on macOS, and run the Compose setup with PostgreSQL, workflows and the state folder's restart check on a Linux host.
+
 ## Live demo
 
 Live app: https://nova-wwn8.onrender.com
