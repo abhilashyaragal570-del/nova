@@ -173,7 +173,7 @@ def test_the_token_line_follows_the_reply(monkeypatch, tmp_path):
     _, body = h.say("hi")
     text, _, info = body.partition("\x00")
     assert text == "ok"
-    assert json.loads(info) == {"prompt": 3, "reply": 4, "total": 7}
+    assert json.loads(info) == {"prompt": 3, "reply": 4, "total": 7, "tools": []}
 
 
 def test_an_api_error_is_reported_and_not_saved(monkeypatch, tmp_path):

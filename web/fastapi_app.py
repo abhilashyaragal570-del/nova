@@ -505,11 +505,12 @@ def chat(body: MainChatIn | None = None):
                 result.hit_round_limit,
                 flush=True,
             )
-        if result.total_tokens:
+        if result.total_tokens or result.tools_used:
             info = {
                 "prompt": result.prompt_tokens,
                 "reply": result.reply_tokens,
                 "total": result.total_tokens,
+                "tools": list(result.tools_used),
             }
             yield "\x00" + json.dumps(info)
 
