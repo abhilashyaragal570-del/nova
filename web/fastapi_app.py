@@ -24,7 +24,7 @@ import os
 import queue
 import threading
 import time
-from typing import Annotated, Any
+from typing import Any
 
 from a2wsgi import WSGIMiddleware
 from fastapi import Depends, FastAPI, Request
@@ -73,7 +73,7 @@ security = HTTPBasic(auto_error=False)
 
 
 def require_password(
-    credentials: Annotated[HTTPBasicCredentials | None, Depends(security)],
+    credentials: HTTPBasicCredentials | None = Depends(security),
 ) -> None:
     password = os.environ.get("NOVA_PASSWORD")
     if not password:
