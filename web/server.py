@@ -143,11 +143,11 @@ def save_prompt(prompt):
 current_prompt = load_prompt()
 
 
-@app.get("/")
+@app.route("/")
 def index():
     return send_from_directory(WEB_DIR, "index.html")
 
 
-@app.get("/usage")
+@app.route("/usage")
 def usage_page():
     return send_from_directory(WEB_DIR, "usage.html")
